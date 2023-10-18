@@ -78,7 +78,7 @@ void* tl_realloc(tl_vm* vm, void* ptr, size_t size)
 
 	vm->bytes_allocated += size;
 #ifdef TL_DEBUG
-	fprintf(stderr, "tinylang: allocating %lu\n bytes", vm->bytes_allocated);
+	fprintf(stderr, "tinylang: allocating %lu bytes\n", vm->bytes_allocated);
 #endif
 
 	return res;
@@ -239,6 +239,11 @@ tl_val tl_vm_pop(tl_vm* vm)
 
 tl_result tl_run(tl_vm* vm)
 {
+#ifdef TL_DISASSEMBLE
+	fprintf(stderr, "tinylang: code listing:\n");
+	tl_func_disassemble(vm, vm->code);
+#endif
+
 #define read_byte() (*ip++)
 
 	uint8_t* ip = vm->code->code;
@@ -257,10 +262,6 @@ tl_result tl_run(tl_vm* vm)
 				break;
 			}
 			case TL_OP_RETURN:
-#ifdef TL_DEBUG
-				fprintf(stderr, "tinylang: code listing:");
-				tl_func_disassemble(vm, vm->code);
-#endif
 				printf("return val: ");
 				tl_val_print(vm, tl_vm_pop(vm));
 				printf("\n");

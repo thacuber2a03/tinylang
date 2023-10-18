@@ -1,7 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define TL_DEBUG
 #include "tl.h"
 
 int main(int argc, char* argv[])
