@@ -40,6 +40,7 @@ struct tl_vm {
 	tl_val stack[TL_STACK_MAX];
 	tl_val* stack_top;
 	tl_func* code;
+	tl_result res;
 	size_t bytes_allocated;
 };
 
@@ -195,18 +196,13 @@ tl_vm* tl_new_vm()
 	vm->constants = tl_new_list(vm);
 	vm->stack_top = vm->stack;
 	vm->bytes_allocated = 0;
+	vm->res = TL_RES_OK;
 	return vm;
 }
 
-void tl_vm_write(tl_vm* vm, tl_op opcode)
+static inline void tl_vm_write(tl_vm* vm, tl_op opcode)
 {
 	tl_func_write(vm, vm->code, opcode);
-}
-
-void tl_vm_load(tl_vm* vm, tl_func* code)
-{
-	// lol
-	vm->code = code;
 }
 
 void tl_load_test_program(tl_vm* vm)
@@ -215,27 +211,29 @@ void tl_load_test_program(tl_vm* vm)
 
 	size_t a = tl_list_push(vm, vm->constants, tl_as_num(42));
 	size_t b = tl_list_push(vm, vm->constants, tl_as_num(21));
-	tl_func_write(vm, vm->code, TL_OP_LOAD);
-	tl_func_write(vm, vm->code, a);
-	tl_func_write(vm, vm->code, TL_OP_LOAD);
-	tl_func_write(vm, vm->code, b);
-	tl_func_write(vm, vm->code, TL_OP_ADD);
-	tl_func_write(vm, vm->code, TL_OP_RETURN);
+	tl_vm_write(vm, TL_OP_LOAD);
+	tl_vm_write(vm, a);
+	tl_vm_write(vm, TL_OP_LOAD);
+	tl_vm_write(vm, b);
+	tl_vm_write(vm, TL_OP_ADD);
+	tl_vm_write(vm, TL_OP_RETURN);
 }
 
-void tl_vm_push(tl_vm* vm, tl_val value)
+static void tl_vm_push(tl_vm* vm, tl_val value)
 {
 	*vm->stack_top = value;
 	vm->stack_top++;
 }
 
-tl_val tl_vm_pop(tl_vm* vm)
+static tl_val tl_vm_pop(tl_vm* vm)
 {
 	return *--vm->stack_top;
 }
 
 tl_result tl_run(tl_vm* vm)
 {
+	if (vm->res != TL_RES_OK) return vm->res;
+
 #ifdef TL_DISASSEMBLE
 	fprintf(stderr, "tinylang: code listing:\n");
 	tl_func_disassemble(vm, vm->code);
@@ -274,4 +272,66 @@ void tl_free_vm(tl_vm* vm)
 	tl_func_free(vm, vm->code);
 	tl_list_free(vm, vm->constants);
 	free(vm);
+}
+
+///// tokenizer /////
+
+typedef enum
+{
+	TL_TOK_EOF,
+} tl_token_type;
+
+typedef struct
+{
+	tl_token_type type;
+	size_t line;
+	char *start, *current;
+} tl_token;
+
+typedef struct
+{
+	const char* source;
+	char *start, *current;
+} tl_tokenizer;
+
+static void tl_tokenizer_init(tl_tokenizer* tk, const char* source)
+{
+	tk->source = source;
+	tk->start = tk->current = (char*)source;
+}
+
+static tl_token tl_tokenizer_next(tl_tokenizer* tk)
+{
+	// yay, hardcoding an end of file
+	return (tl_token) {
+		.type = TL_TOK_EOF,
+		.line = 1,
+		.start = (char*)tk->source,
+		.current = (char*)tk->source,
+	};
+}
+
+// TODO(thacuber2a03): get rid of function after tokenizer is done
+static const char* tl_tok_type_to_str(tl_token_type type)
+{
+	switch (type)
+	{
+		case TL_TOK_EOF: return "end of file";
+		default: return NULL; // unreachable
+	}
+}
+
+///// frontend /////
+
+void tl_compile_string(tl_vm* vm, const char* string)
+{
+	unused(vm);
+	tl_tokenizer tk;
+	tl_tokenizer_init(&tk, string);
+
+	tl_token tok;
+	do {
+		tok = tl_tokenizer_next(&tk);
+		printf("type %s, lexeme %.*s\n", tl_tok_type_to_str(tok.type), (int)(tok.current-tok.start), tok.start);
+	} while (tok.type != TL_TOK_EOF);
 }

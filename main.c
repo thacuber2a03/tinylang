@@ -7,6 +7,8 @@ int main(void)
 {
   tl_vm* vm = tl_new_vm();
 
+  tl_compile_string(vm, "aeiou");
+
   tl_load_test_program(vm);
 
   switch (tl_run(vm))

@@ -1,6 +1,6 @@
 OUT := tl
 
-CFLAGS := -std=c99 -Isrc -Wall -Wextra -pedantic -Wno-unused-function
+CFLAGS := -std=c99 -Isrc -Wall -Wextra -pedantic
 
 all: $(OUT)
 
