@@ -4,6 +4,12 @@
 
 #include "tl.h"
 
+// TODO(thacuber2a03):
+// - tokenizer
+// - more possible values
+// - more vm operations
+// - etc. you know the drill
+
 ///// defs /////
 
 #define unused(x) ((void) x)
