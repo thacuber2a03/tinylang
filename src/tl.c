@@ -28,10 +28,10 @@ typedef struct {
 	size_t count, cap;
 } tl_list;
 
-struct tl_func {
+typedef struct {
 	uint8_t* code;
 	size_t count, cap;
-};
+} tl_func;
 
 #define TL_STACK_MAX 256
 

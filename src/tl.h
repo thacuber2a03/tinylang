@@ -20,7 +20,6 @@ typedef struct tl_val tl_val;
 #define tl_to_num(val) ((val).as.number)
 #define tl_as_num(num) ((tl_val) { .type = TL_TYPE_NUM, .as.number = num })
 
-typedef struct tl_func tl_func;
 typedef struct tl_vm tl_vm;
 
 tl_vm* tl_new_vm();
