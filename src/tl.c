@@ -19,6 +19,10 @@ typedef enum
 	TL_OP_RETURN,
 	TL_OP_LOAD,
 	TL_OP_ADD,
+	TL_OP_SUB,
+	TL_OP_MUL,
+	TL_OP_DIV,
+	TL_OP_NEG,
 } tl_op;
 
 struct tl_val
@@ -154,6 +158,8 @@ void tl_func_write(tl_vm* vm, tl_func* func, uint8_t code)
 	func->code[func->count++] = code;
 }
 
+// disassembler //
+
 static size_t disassemble_simple(const char* name, size_t offset)
 {
 	printf("%04ld %s\n", offset, name);
@@ -176,12 +182,13 @@ void tl_func_disassemble(tl_vm* vm, tl_func* func)
 		switch (func->code[offset])
 		{
 			case TL_OP_RETURN: offset = disassemble_simple("TL_OP_RETURN", offset); break;
-			case TL_OP_ADD: offset = disassemble_simple("TL_OP_ADD", offset); break;
 			case TL_OP_LOAD: offset = disasssemble_const(vm, func, "TL_OP_LOAD", offset); break;
-			default:
-				printf("unknown opcode\n");
-				offset++;
-				break;
+			case TL_OP_ADD: offset = disassemble_simple("TL_OP_ADD", offset); break;
+			case TL_OP_SUB: offset = disassemble_simple("TL_OP_SUB", offset); break;
+			case TL_OP_MUL: offset = disassemble_simple("TL_OP_MUL", offset); break;
+			case TL_OP_DIV: offset = disassemble_simple("TL_OP_DIV", offset); break;
+			case TL_OP_NEG: offset = disassemble_simple("TL_OP_NEG", offset); break;
+			default: printf("unknown opcode\n"); offset++; break;
 		}
 	}
 }
@@ -217,11 +224,16 @@ void tl_load_test_program(tl_vm* vm)
 
 	size_t a = tl_list_push(vm, vm->constants, tl_as_num(42));
 	size_t b = tl_list_push(vm, vm->constants, tl_as_num(21));
+	size_t c = tl_list_push(vm, vm->constants, tl_as_num(10.5));
 	tl_vm_write(vm, TL_OP_LOAD);
 	tl_vm_write(vm, a);
 	tl_vm_write(vm, TL_OP_LOAD);
 	tl_vm_write(vm, b);
 	tl_vm_write(vm, TL_OP_ADD);
+	tl_vm_write(vm, TL_OP_LOAD);
+	tl_vm_write(vm, c);
+	tl_vm_write(vm, TL_OP_SUB);
+	tl_vm_write(vm, TL_OP_NEG);
 	tl_vm_write(vm, TL_OP_RETURN);
 }
 
@@ -247,6 +259,13 @@ tl_result tl_run(tl_vm* vm)
 
 #define read_byte() (*ip++)
 
+#define arith_op(op) \
+	do {                                   \
+		double b = tl_to_num(tl_vm_pop(vm)); \
+		double a = tl_to_num(tl_vm_pop(vm)); \
+		tl_vm_push(vm, tl_as_num(a + b));    \
+	} while(0)
+
 	uint8_t* ip = vm->code->code;
 	for (;;)
 	{
@@ -256,12 +275,11 @@ tl_result tl_run(tl_vm* vm)
 			case TL_OP_LOAD:
 				tl_vm_push(vm, tl_list_get(vm->constants, read_byte()));
 				break;
-			case TL_OP_ADD: {
-				tl_val b = tl_vm_pop(vm);
-				tl_val a = tl_vm_pop(vm);
-				tl_vm_push(vm, tl_as_num(tl_to_num(a) + tl_to_num(b)));
-				break;
-			}
+			case TL_OP_ADD: arith_op(+); break;
+			case TL_OP_SUB: arith_op(-); break;
+			case TL_OP_MUL: arith_op(*); break;
+			case TL_OP_DIV: arith_op(/); break;
+			case TL_OP_NEG: tl_to_num(*vm->stack_top) *= -1; break;
 			case TL_OP_RETURN:
 				printf("return val: ");
 				tl_val_print(tl_vm_pop(vm));
@@ -270,6 +288,7 @@ tl_result tl_run(tl_vm* vm)
 		}
 	}
 
+#undef arith_op
 #undef read_byte
 }
 
