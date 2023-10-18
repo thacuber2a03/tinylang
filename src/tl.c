@@ -257,7 +257,10 @@ tl_result tl_run(tl_vm* vm)
 				break;
 			}
 			case TL_OP_RETURN:
+#ifdef TL_DEBUG
+				fprintf(stderr, "tinylang: code listing:");
 				tl_func_disassemble(vm, vm->code);
+#endif
 				printf("return val: ");
 				tl_val_print(vm, tl_vm_pop(vm));
 				printf("\n");
