@@ -25,12 +25,12 @@ struct tl_val
 
 typedef struct {
 	tl_val* data;
-	int count, cap;
+	size_t count, cap;
 } tl_list;
 
 struct tl_func {
 	uint8_t* code;
-	int count, cap;
+	size_t count, cap;
 };
 
 #define TL_STACK_MAX 256
@@ -45,9 +45,8 @@ struct tl_vm {
 
 ///// val /////
 
-void tl_val_print(tl_vm* vm, tl_val value)
+void tl_val_print(tl_val value)
 {
-	unused(vm);
 	switch (value.type)
 	{
 		case TL_TYPE_NUM: printf("%g", tl_to_num(value));
@@ -111,20 +110,18 @@ static size_t tl_list_push(tl_vm* vm, tl_list* list, tl_val value)
 	return idx;
 }
 
-static tl_val tl_list_pop(tl_vm* vm, tl_list* list)
+static tl_val tl_list_pop(tl_list* list)
 {
-	unused(vm);
 	return list->data[--list->count];
 }
 
-static tl_val tl_list_get(tl_vm* vm, tl_list* list, size_t idx)
+static tl_val tl_list_get(tl_list* list, size_t idx)
 {
-	unused(vm);
 	// TODO(thacuber2a03): bounds checking
 	return list->data[idx];
 }
 
-static void tl_free_list(tl_vm* vm, tl_list* list)
+static void tl_list_free(tl_vm* vm, tl_list* list)
 {
 	tl_free(vm, list->data);
 	tl_free(vm, list);
@@ -150,7 +147,7 @@ void tl_func_write(tl_vm* vm, tl_func* func, uint8_t code)
 	func->code[func->count++] = code;
 }
 
-static size_t disassemble_simple(tl_func* func, const char* name, size_t offset)
+static size_t disassemble_simple(const char* name, size_t offset)
 {
 	printf("%04ld %s\n", offset, name);
 	return offset+1;
@@ -159,7 +156,7 @@ static size_t disassemble_simple(tl_func* func, const char* name, size_t offset)
 static size_t disasssemble_const(tl_vm* vm, tl_func* func, const char* name, size_t offset)
 {
 	printf("%04ld %-16s index %i (", offset, name, func->code[offset+1]);
-	tl_val_print(vm, tl_list_get(vm, vm->constants, func->code[offset+1]));
+	tl_val_print(tl_list_get(vm->constants, func->code[offset+1]));
 	printf(")\n");
 	return offset+2;
 }
@@ -171,8 +168,8 @@ void tl_func_disassemble(tl_vm* vm, tl_func* func)
 	{
 		switch (func->code[offset])
 		{
-			case TL_OP_RETURN: offset = disassemble_simple(func, "TL_OP_RETURN", offset); break;
-			case TL_OP_ADD: offset = disassemble_simple(func, "TL_OP_ADD", offset); break;
+			case TL_OP_RETURN: offset = disassemble_simple("TL_OP_RETURN", offset); break;
+			case TL_OP_ADD: offset = disassemble_simple("TL_OP_ADD", offset); break;
 			case TL_OP_LOAD: offset = disasssemble_const(vm, func, "TL_OP_LOAD", offset); break;
 			default:
 				printf("unknown opcode\n");
@@ -253,7 +250,7 @@ tl_result tl_run(tl_vm* vm)
 		switch (instruction)
 		{
 			case TL_OP_LOAD:
-				tl_vm_push(vm, tl_list_get(vm, vm->constants, read_byte()));
+				tl_vm_push(vm, tl_list_get(vm->constants, read_byte()));
 				break;
 			case TL_OP_ADD: {
 				tl_val b = tl_vm_pop(vm);
@@ -263,7 +260,7 @@ tl_result tl_run(tl_vm* vm)
 			}
 			case TL_OP_RETURN:
 				printf("return val: ");
-				tl_val_print(vm, tl_vm_pop(vm));
+				tl_val_print(tl_vm_pop(vm));
 				printf("\n");
 				return TL_RES_OK;
 		}
@@ -275,6 +272,6 @@ tl_result tl_run(tl_vm* vm)
 void tl_free_vm(tl_vm* vm)
 {
 	tl_func_free(vm, vm->code);
-	tl_free(vm, vm->constants);
+	tl_list_free(vm, vm->constants);
 	free(vm);
 }

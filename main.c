@@ -3,7 +3,7 @@
 
 #include "tl.h"
 
-int main(int argc, char* argv[])
+int main(void)
 {
   tl_vm* vm = tl_new_vm();
 
@@ -12,6 +12,8 @@ int main(int argc, char* argv[])
   switch (tl_run(vm))
   {
     case TL_RES_OK: printf("a-ok!\n"); break;
+    case TL_RES_RUNERR: printf("syntax error\n"); break;
+    case TL_RES_SYNERR: printf("runtime error\n"); break;
   }
 
   tl_free_vm(vm);

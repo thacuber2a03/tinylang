@@ -25,4 +25,5 @@ typedef struct tl_vm tl_vm;
 
 tl_vm* tl_new_vm();
 void tl_free_vm(tl_vm* vm);
+void tl_load_test_program(tl_vm* vm);
 tl_result tl_run(tl_vm* vm);
