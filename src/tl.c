@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
+#include <ctype.h>
 
 #include "tl.h"
 
@@ -234,6 +236,12 @@ void tl_load_test_program(tl_vm* vm)
 	tl_vm_write(vm, c);
 	tl_vm_write(vm, TL_OP_SUB);
 	tl_vm_write(vm, TL_OP_NEG);
+	tl_vm_write(vm, TL_OP_LOAD);
+	tl_vm_write(vm, c);
+	tl_vm_write(vm, TL_OP_MUL);
+	tl_vm_write(vm, TL_OP_LOAD);
+	tl_vm_write(vm, b);
+	tl_vm_write(vm, TL_OP_DIV);
 	tl_vm_write(vm, TL_OP_RETURN);
 }
 
@@ -257,8 +265,6 @@ tl_result tl_run(tl_vm* vm)
 	tl_func_disassemble(vm, vm->code);
 #endif
 
-#define read_byte() (*ip++)
-
 #define arith_op(op) \
 	do {                                   \
 		double b = tl_to_num(tl_vm_pop(vm)); \
@@ -267,20 +273,21 @@ tl_result tl_run(tl_vm* vm)
 	} while(0)
 
 	uint8_t* ip = vm->code->code;
+#define read_byte() (*ip++)
+#define read_constant() (tl_list_get(vm->constants, read_byte()))
 	for (;;)
 	{
 		uint8_t instruction = read_byte();
 		switch (instruction)
 		{
-			case TL_OP_LOAD:
-				tl_vm_push(vm, tl_list_get(vm->constants, read_byte()));
-				break;
+			case TL_OP_LOAD: tl_vm_push(vm, read_constant()); break;
 			case TL_OP_ADD: arith_op(+); break;
 			case TL_OP_SUB: arith_op(-); break;
 			case TL_OP_MUL: arith_op(*); break;
 			case TL_OP_DIV: arith_op(/); break;
 			case TL_OP_NEG: tl_to_num(*vm->stack_top) *= -1; break;
 			case TL_OP_RETURN:
+				// TODO(thacuber2a03): change this, of course
 				printf("return val: ");
 				tl_val_print(tl_vm_pop(vm));
 				printf("\n");
@@ -288,8 +295,9 @@ tl_result tl_run(tl_vm* vm)
 		}
 	}
 
-#undef arith_op
+#undef read_constant
 #undef read_byte
+#undef arith_op
 }
 
 void tl_free_vm(tl_vm* vm)
@@ -303,37 +311,97 @@ void tl_free_vm(tl_vm* vm)
 
 typedef enum
 {
+	TL_TOK_ERROR = -1,
 	TL_TOK_EOF,
+	TL_TOK_NUM,
 } tl_token_type;
 
 typedef struct
 {
 	tl_token_type type;
-	size_t line;
-	char *start, *current;
+	size_t line, length;
+	char *start;
 } tl_token;
 
 typedef struct
 {
 	const char* source;
 	char *start, *current;
+	size_t line;
+	bool had_error;
 } tl_tokenizer;
 
 static void tl_tokenizer_init(tl_tokenizer* tk, const char* source)
 {
 	tk->source = source;
 	tk->start = tk->current = (char*)source;
+	tk->line = 1;
+	tk->had_error = false;
+}
+
+static tl_token tl_tokenizer_new_token(tl_tokenizer* tk, tl_token_type type)
+{
+	tl_token tok;
+	tok.type = type;
+	tok.line = tk->line;
+	tok.start = tk->start;
+	tok.length = tk->current - tk->start;
+	return tok;
+}
+
+static tl_token tl_tokenizer_new_error(tl_tokenizer* tk, const char* msg)
+{
+	tl_token tok;
+	tok.type = TL_TOK_ERROR;
+	tok.line = tk->line;
+	tok.start = (char*) msg;
+	tok.length = strlen(msg);
+	return tok;
+}
+
+#define tl_tokenizer_peek(tk) (*(tk)->current)
+#define tl_tokenizer_peekn(tk, n) ((tk)->current[n])
+#define tl_tokenizer_at_end(tk) (tl_tokenizer_peek(tk) == '\0')
+#define tl_tokenizer_advance(tk) ((tk)->current++)
+#define tl_tokenizer_advancec(tk) (*(tk)->current++)
+
+#define tl_tokenizer_is_digit(c) ((c) >= '0' && (c) <= '9')
+
+static tl_token tl_tokenizer_scan_num(tl_tokenizer* tk)
+{
+	while (isdigit(tl_tokenizer_peek(tk))) tl_tokenizer_advance(tk);
+
+	if (tl_tokenizer_peek(tk) == '.' && isdigit(tl_tokenizer_peekn(tk, 1)))
+	{
+		tl_tokenizer_advance(tk);
+		while (isdigit(tl_tokenizer_peek(tk))) tl_tokenizer_advance(tk);
+	}
+
+	return tl_tokenizer_new_token(tk, TL_TOK_NUM);
 }
 
 static tl_token tl_tokenizer_next(tl_tokenizer* tk)
 {
-	// yay, hardcoding an end of file
-	return (tl_token) {
-		.type = TL_TOK_EOF,
-		.line = 1,
-		.start = (char*)tk->source,
-		.current = (char*)tk->source,
-	};
+	tk->start = tk->current;
+	if (tl_tokenizer_at_end(tk)) return tl_tokenizer_new_token(tk, TL_TOK_EOF);
+
+	char c = tl_tokenizer_advancec(tk);
+
+	switch (c)
+	{
+		case '\n':
+			tk->line++;
+			// fallthrough
+		case '\r':
+		case '\t':
+		case ' ':
+			return tl_tokenizer_next(tk);
+
+		default:
+			if (isdigit(c)) return tl_tokenizer_scan_num(tk);
+	}
+
+	return tl_tokenizer_new_error(tk, "unrecognized character");
 }
 
 // TODO(thacuber2a03): get rid of function after tokenizer is done
@@ -341,7 +409,9 @@ static const char* tl_tok_type_to_str(tl_token_type type)
 {
 	switch (type)
 	{
+		case TL_TOK_ERROR: return "error";
 		case TL_TOK_EOF: return "end of file";
+		case TL_TOK_NUM: return "number";
 		default: return NULL; // unreachable
 	}
 }
@@ -357,6 +427,7 @@ void tl_compile_string(tl_vm* vm, const char* string)
 	tl_token tok;
 	do {
 		tok = tl_tokenizer_next(&tk);
-		printf("type %s, lexeme %.*s\n", tl_tok_type_to_str(tok.type), (int)(tok.current-tok.start), tok.start);
+		printf("type %s, lexeme '%.*s'\n", tl_tok_type_to_str(tok.type), (int)tok.length, tok.start);
 	} while (tok.type != TL_TOK_EOF);
 }
+
