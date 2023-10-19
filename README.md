@@ -2,11 +2,11 @@
 an embeddable, small and fast toy programming language implemented in C99
 that fits in (well, actually, that I've shoehorned in) a pair of .h/.c files.
 
-*NOTE*:
-I am doing this whole thing in the spot.
-whatever comes into my mind that I deem useful will appear here
+*NOTE*: I am doing this whole thing on the spot.
+I can always add whatever comes into my mind I deem useful;
+the language is in really early development anyways.
 
-## features
+### features
 
 - small but expressive bytecode; compiles in a single pass
 
