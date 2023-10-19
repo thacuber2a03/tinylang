@@ -377,7 +377,7 @@ tl_result tl_run(tl_vm* vm)
 	for (;;)
 	{
 #ifdef TL_DEBUG_RUNTIME
-		fprintf(stderr, "current instruction: ");
+		printf("current instruction: ");
 		tl_func_disassemble_instruction(vm, vm->code, ip - vm->code->code);
 #endif
 
