@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 //#define TL_DEBUG
+#define TL_DEBUG_RUNTIME
 #define TL_DISASSEMBLE
 
 typedef enum
@@ -39,5 +40,6 @@ typedef struct tl_vm tl_vm;
 tl_vm* tl_new_vm(void);
 void tl_free_vm(tl_vm* vm);
 tl_result tl_run(tl_vm* vm);
+void tl_clear_code(tl_vm* vm);
 bool tl_compile_string(tl_vm* vm, const char* string);
 
