@@ -8,7 +8,7 @@ int main(void)
   tl_vm* vm = tl_new_vm();
 
   // I am so unfunny
-  tl_compile_string(vm, "1 20 12.3 420.69");
+  tl_compile_string(vm, "1 + 20 - 12.3 * 420.69 / 2 // some random expression");
 
   tl_load_error_test_program(vm);
 
