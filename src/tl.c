@@ -72,7 +72,8 @@ void tl_val_print(tl_val value)
 
 ///// mem /////
 
-#define grow_cap(cap) ((cap) == 0 ? 8 : (cap) * 2)
+#define tl_grow_cap(cap) ((cap) == 0 ? 8 : (cap) * 2)
+#define tl_grow_list(vm, list) tl_realloc(vm, list->data, list->cap * sizeof *list->data)
 
 void* tl_realloc(tl_vm* vm, void* ptr, size_t size)
 {
@@ -102,8 +103,6 @@ void* tl_realloc(tl_vm* vm, void* ptr, size_t size)
 #define tl_alloc(vm, size) tl_realloc(vm, NULL, size)
 #define tl_free(vm, ptr) tl_realloc(vm, ptr, 0)
 
-#define tl_grow_cap(cap) ((cap) == 0 ? 8 : (cap) * 2)
-
 ///// list /////
 
 static tl_list* tl_new_list(tl_vm* vm)
@@ -119,19 +118,19 @@ static size_t tl_list_push(tl_vm* vm, tl_list* list, tl_val value)
 	if (list->count + 1 > list->cap)
 	{
 		list->cap = tl_grow_cap(list->cap);
-		list->data = tl_realloc(vm, list->data, list->cap * sizeof *list->data);
+		list->data = tl_grow_list(vm, list);
 	}
 	size_t idx = list->count++;
 	list->data[idx] = value;
 	return idx;
 }
 
-static tl_val tl_list_pop(tl_list* list)
+static inline tl_val tl_list_pop(tl_list* list)
 {
 	return list->data[--list->count];
 }
 
-static tl_val tl_list_get(tl_list* list, size_t idx)
+static inline tl_val tl_list_get(tl_list* list, size_t idx)
 {
 	// TODO(thacuber2a03): bounds checking
 	return list->data[idx];
@@ -145,7 +144,7 @@ static void tl_list_free(tl_vm* vm, tl_list* list)
 
 ///// func /////
 
-tl_func* tl_new_func(tl_vm* vm)
+static tl_func* tl_new_func(tl_vm* vm)
 {
 	tl_func* func = tl_alloc(vm, sizeof *func);
 	func->code = NULL;
@@ -153,7 +152,7 @@ tl_func* tl_new_func(tl_vm* vm)
 	return func;
 }
 
-void tl_func_write(tl_vm* vm, tl_func* func, uint8_t code)
+static void tl_func_write(tl_vm* vm, tl_func* func, uint8_t code)
 {
 	if (func->count + 1 > func->cap)
 	{
