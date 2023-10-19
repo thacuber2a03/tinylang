@@ -19,9 +19,19 @@ typedef enum
 	TL_TYPE_BOOL,
 } tl_val_type;
 
-typedef struct tl_val tl_val;
+typedef struct
+{
+	tl_val_type type;
+	union {
+		double number;
+		bool boolean;
+	} as;
+} tl_val;
+
 void tl_val_print(tl_val value);
-bool tl_val_is_falsy(tl_val value);
+bool tl_val_is_truthy(tl_val value);
+
+#define tl_val_type(val) ((val).type)
 
 #define tl_val_is_num(val) ((val).type == TL_TYPE_NUM)
 #define tl_val_to_num(val) ((val).as.number)

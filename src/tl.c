@@ -21,6 +21,7 @@
 
 typedef enum {
 	TL_OP_LOAD, // load a value from constants table
+	TL_OP_LOAD_IMM, // load a byte just after the instruction
 	TL_OP_TRUE,
 	TL_OP_FALSE,
 	TL_OP_NULL,
@@ -32,17 +33,12 @@ typedef enum {
 	TL_OP_NEG,
 	TL_OP_NOT,
 
+	TL_OP_NEQ,
+	TL_OP_LESS,
+	TL_OP_GREATER,
+
 	TL_OP_RETURN, // return from function; at top level, halt
 } tl_op;
-
-struct tl_val
-{
-	tl_val_type type;
-	union {
-		double number;
-		bool boolean;
-	} as;
-};
 
 typedef struct {
 	tl_val* data;
@@ -78,12 +74,24 @@ void tl_val_print(tl_val value)
 	}
 }
 
-bool tl_val_is_falsy(tl_val value)
+static bool tl_val_is_falsy(tl_val value)
 {
 	if (tl_val_is_bool(value)) return !tl_val_to_bool(value);
 	if (tl_val_is_null(value)) return true;
 	return false;
 }
+
+bool tl_val_is_truthy(tl_val value) { return !tl_val_is_falsy(value); }
+
+static bool tl_val_not_equal(tl_val a, tl_val b)
+{
+	if (tl_val_type(a) != tl_val_type(b)) return true;
+	if (tl_val_is_num(a)) return tl_val_to_num(a) != tl_val_to_num(b);
+	if (tl_val_is_bool(a)) return tl_val_to_bool(a) != tl_val_to_bool(b);
+	return false;
+}
+
+bool tl_val_equal(tl_val a, tl_val b) { return !tl_val_not_equal(a, b); }
 
 ///// mem /////
 
@@ -178,6 +186,7 @@ static void tl_func_write(tl_vm* vm, tl_func* func, uint8_t code)
 }
 
 // disassembler //
+#ifdef TL_DISASSEMBLE
 
 static size_t disassemble_simple(const char* name, size_t offset)
 {
@@ -185,7 +194,7 @@ static size_t disassemble_simple(const char* name, size_t offset)
 	return offset+1;
 }
 
-static size_t disasssemble_const(tl_vm* vm, tl_func* func, const char* name, size_t offset)
+static size_t disassemble_const(tl_vm* vm, tl_func* func, const char* name, size_t offset)
 {
 	printf("%04ld %-16s index %i (", offset, name, func->code[offset+1]);
 	tl_val_print(tl_list_get(vm->constants, func->code[offset+1]));
@@ -193,23 +202,35 @@ static size_t disasssemble_const(tl_vm* vm, tl_func* func, const char* name, siz
 	return offset+2;
 }
 
+static size_t disassemble_immediate(tl_func* func, const char* name, size_t offset)
+{
+	printf("%04ld %-16s %i\n", offset, name, func->code[offset+1]);
+	return offset+2;
+}
+
 static size_t tl_func_disassemble_instruction(tl_vm* vm, tl_func* func, size_t offset)
 {
 	switch (func->code[offset])
 	{
-		case TL_OP_LOAD:  return disasssemble_const(vm, func, "TL_OP_LOAD", offset); break;
-		case TL_OP_TRUE:  return disassemble_simple("TL_OP_TRUE", offset); break;
-		case TL_OP_FALSE: return disassemble_simple("TL_OP_FALSE", offset); break;
-		case TL_OP_NULL:  return disassemble_simple("TL_OP_NULL", offset); break;
+		case TL_OP_LOAD_IMM: return disassemble_immediate(func, "TL_OP_LOAD_IMM", offset); break;
+		case TL_OP_LOAD:     return disassemble_const(vm, func, "TL_OP_LOAD", offset);     break;
 
-		case TL_OP_ADD: return disassemble_simple("TL_OP_ADD", offset); break;
-		case TL_OP_SUB: return disassemble_simple("TL_OP_SUB", offset); break;
-		case TL_OP_MUL: return disassemble_simple("TL_OP_MUL", offset); break;
-		case TL_OP_DIV: return disassemble_simple("TL_OP_DIV", offset); break;
-		case TL_OP_NEG: return disassemble_simple("TL_OP_NEG", offset); break;
-		case TL_OP_NOT: return disassemble_simple("TL_OP_NOT", offset); break;
+		case TL_OP_TRUE:     return disassemble_simple("TL_OP_TRUE",    offset); break;
+		case TL_OP_FALSE:    return disassemble_simple("TL_OP_FALSE",   offset); break;
+		case TL_OP_NULL:     return disassemble_simple("TL_OP_NULL",    offset); break;
 
-		case TL_OP_RETURN: return disassemble_simple("TL_OP_RETURN", offset); break;
+		case TL_OP_ADD:      return disassemble_simple("TL_OP_ADD",     offset); break;
+		case TL_OP_SUB:      return disassemble_simple("TL_OP_SUB",     offset); break;
+		case TL_OP_MUL:      return disassemble_simple("TL_OP_MUL",     offset); break;
+		case TL_OP_DIV:      return disassemble_simple("TL_OP_DIV",     offset); break;
+		case TL_OP_NEG:      return disassemble_simple("TL_OP_NEG",     offset); break;
+		case TL_OP_NOT:      return disassemble_simple("TL_OP_NOT",     offset); break;
+
+		case TL_OP_NEQ:      return disassemble_simple("TL_OP_NEQ",     offset); break;
+		case TL_OP_GREATER:  return disassemble_simple("TL_OP_GREATER", offset); break;
+		case TL_OP_LESS:     return disassemble_simple("TL_OP_LESS",    offset); break;
+
+		case TL_OP_RETURN:   return disassemble_simple("TL_OP_RETURN",  offset); break;
 
 		default: printf("unknown opcode\n"); return offset + 1; break;
 	}
@@ -223,6 +244,8 @@ static void tl_func_disassemble(tl_vm* vm, tl_func* func)
 		offset = tl_func_disassemble_instruction(vm, func, offset);
 	}
 }
+
+#endif // TL_DISASSEMBLE
 
 //////////////////
 
@@ -332,13 +355,13 @@ tl_result tl_run(tl_vm* vm)
 	tl_func_disassemble(vm, vm->code);
 #endif
 
-#define arith_op(op, action) \
+#define arith_op(op, result, action) \
   do {                                    \
     if (!tl_val_is_num(tl_vm_peek(vm, 0)) || !tl_val_is_num(tl_vm_peek(vm, 1))) \
       return tl_vm_runtime_error(vm, "can't " action " non-number values\n"); \
     double b = tl_val_to_num(tl_vm_pop(vm)); \
     double a = tl_val_to_num(tl_vm_pop(vm)); \
-    tl_vm_push(vm, tl_val_from_num(a op b));  \
+    tl_vm_push(vm, tl_val_from_##result(a op b));  \
   } while(0)
 
 	uint8_t* ip = vm->code->code;
@@ -354,23 +377,37 @@ tl_result tl_run(tl_vm* vm)
 		uint8_t instruction = read_byte();
 		switch (instruction)
 		{
-			case TL_OP_LOAD: tl_vm_push(vm, read_constant()); break;
-			case TL_OP_TRUE: tl_vm_push(vm, tl_val_true); break;
-			case TL_OP_FALSE: tl_vm_push(vm, tl_val_false); break;
-			case TL_OP_NULL: tl_vm_push(vm, tl_val_null); break;
+			case TL_OP_LOAD:     tl_vm_push(vm, read_constant());              break;
+			case TL_OP_LOAD_IMM: tl_vm_push(vm, tl_val_from_num(read_byte())); break;
+			case TL_OP_TRUE:     tl_vm_push(vm, tl_val_true);                  break;
+			case TL_OP_FALSE:    tl_vm_push(vm, tl_val_false);                 break;
+			case TL_OP_NULL:     tl_vm_push(vm, tl_val_null);                  break;
 
-			case TL_OP_ADD: arith_op(+, "add"); break;
-			case TL_OP_SUB: arith_op(-, "subtract"); break;
-			case TL_OP_MUL: arith_op(*, "multiply"); break;
-			case TL_OP_DIV: arith_op(/, "divide"); break;
+			case TL_OP_ADD: arith_op(+, num, "add");      break;
+			case TL_OP_SUB: arith_op(-, num, "subtract"); break;
+			case TL_OP_MUL: arith_op(*, num, "multiply"); break;
+			case TL_OP_DIV: arith_op(/, num, "divide");   break;
+
 			case TL_OP_NEG:
 				if (!tl_val_is_num(tl_vm_peek(vm, 0)))
 					return tl_vm_runtime_error(vm, "can't negate a non-number");
 				tl_val_to_num(vm->stack_top[-1]) *= -1;
 				break;
+
 			case TL_OP_NOT:
 				vm->stack_top[-1] = tl_val_from_bool(tl_val_is_falsy(vm->stack_top[-1]));
 				break;
+
+			case TL_OP_NEQ:
+			{
+				tl_val a = tl_vm_pop(vm);
+				tl_val b = tl_vm_pop(vm);
+				tl_vm_push(vm, tl_val_from_bool(tl_val_not_equal(a, b)));
+				break;
+			}
+
+			case TL_OP_GREATER: arith_op(>, bool, "compare"); break;
+			case TL_OP_LESS:    arith_op(<, bool, "compare"); break;
 
 			case TL_OP_RETURN:
 				// TODO(thacuber2a03): change this, of course
@@ -384,9 +421,10 @@ tl_result tl_run(tl_vm* vm)
 		printf("stack: ");
 		for (tl_val* val = vm->stack; val < vm->stack_top; val++)
 		{
+			printf("| ");
 			tl_val_print(*val);
-			if (val + 1 != vm->stack_top)
-				printf("|");
+			putchar(' ');
+			if (val + 1 == vm->stack_top) putchar('|');
 		}
 		printf("\n");
 #endif
@@ -415,7 +453,7 @@ void tl_free_vm(tl_vm* vm)
 typedef enum {
 	TL_TOK_PLUS, TL_TOK_MINUS, TL_TOK_STAR, TL_TOK_SLASH, TL_TOK_BANG,
 	TL_TOK_NEQ, TL_TOK_EQ, TL_TOK_GEQ, TL_TOK_LEQ, TL_TOK_LESS, TL_TOK_GREATER,
-	TL_TOK_DOT, TL_TOK_ASSIGN,
+	TL_TOK_DOT, TL_TOK_ASSIGN, TL_TOK_LPAREN, TL_TOK_RPAREN,
 
 	TL_TOK_TRUE, TL_TOK_FALSE, TL_TOK_NULL,
 	TL_TOK_NUM, TL_TOK_ID,
@@ -550,6 +588,9 @@ static tl_token tl_tokenizer_next_tok(tl_tokenizer* tk)
 		case ' ':
 			return tl_tokenizer_next_tok(tk);
 
+		case '(': return tl_tokenizer_new_token(tk, TL_TOK_LPAREN);
+		case ')': return tl_tokenizer_new_token(tk, TL_TOK_RPAREN);
+
 		case '!': return tl_tokenizer_new_token(tk, tl_tokenizer_match(tk, '=') ? TL_TOK_NEQ : TL_TOK_BANG);
 		case '=': return tl_tokenizer_new_token(tk, tl_tokenizer_match(tk, '=') ? TL_TOK_EQ : TL_TOK_ASSIGN);
 		case '>': return tl_tokenizer_new_token(tk, tl_tokenizer_match(tk, '=') ? TL_TOK_GEQ : TL_TOK_GREATER);
@@ -586,6 +627,8 @@ typedef struct {
 
 typedef enum {
 	TL_PREC_NONE,
+	TL_PREC_EQUALITY,
+	TL_PREC_COMPARISON,
 	TL_PREC_TERM,
 	TL_PREC_FACTOR,
 	TL_PREC_UNARY,
@@ -598,17 +641,17 @@ typedef struct {
 	tl_parser_precedence precedence;
 } tl_parser_parse_rule;
 
-static tl_token tl_parser_next(tl_parser* tp);
+static tl_token tl_parser_advance(tl_parser* tp);
 
 static void tl_parser_init(tl_parser* tp, tl_tokenizer* tk)
 {
 	tp->tk = tk;
 	tp->vm = NULL;
 	tp->error = tp->panic = false;
-	tl_parser_next(tp);
+	tl_parser_advance(tp);
 }
 
-static tl_token tl_parser_next(tl_parser* tp)
+static tl_token tl_parser_advance(tl_parser* tp)
 {
 	tp->cur_tok = tp->next_tok;
 	tp->next_tok = tl_tokenizer_next_tok(tp->tk);
@@ -617,12 +660,24 @@ static tl_token tl_parser_next(tl_parser* tp)
 
 static void tl_parser_error(tl_parser* tp, tl_token tok, const char* msg)
 {
+	if (tp->panic) return;
+
 	fprintf(stderr,
 		"[line %i] error near '%.*s': %s\n",
 		(int)tok.line, (int)tok.length, tok.start, msg
 	);
 
 	tp->error = tp->panic = true;
+}
+
+static void tl_parser_expect(tl_parser* tp, tl_token_type expected, const char* msg, ...)
+{
+	if (tp->next_tok.type == expected)
+	{
+		tl_parser_advance(tp);
+		return;
+	}
+	tl_parser_error(tp, tp->cur_tok, msg);
 }
 
 #define tl_parser_write_byte(tp, b) tl_vm_write((tp)->vm, (b))
@@ -645,7 +700,10 @@ static tl_parser_parse_rule* tl_parser_get_rule(tl_token_type type);
 static void tl_parser_number(tl_parser* tp)
 {
 	double num = strtod(tp->cur_tok.start, NULL);
-	tl_parser_load_const(tp, tl_val_from_num(num));
+	if (num > 0 && num < 256)
+		tl_parser_write_bytes(tp, TL_OP_LOAD_IMM, (uint8_t)num);
+	else
+		tl_parser_load_const(tp, tl_val_from_num(num));
 }
 
 static void tl_parser_literal(tl_parser* tp)
@@ -667,10 +725,16 @@ static void tl_parser_binary(tl_parser* tp)
 
 	switch (type)
 	{
-		case TL_TOK_PLUS:  tl_parser_write_byte(tp, TL_OP_ADD); break;
-		case TL_TOK_MINUS: tl_parser_write_byte(tp, TL_OP_SUB); break;
-		case TL_TOK_STAR:  tl_parser_write_byte(tp, TL_OP_MUL); break;
-		case TL_TOK_SLASH: tl_parser_write_byte(tp, TL_OP_DIV); break;
+		case TL_TOK_PLUS:    tl_parser_write_byte(tp, TL_OP_ADD);                 break;
+		case TL_TOK_MINUS:   tl_parser_write_byte(tp, TL_OP_SUB);                 break;
+		case TL_TOK_STAR:    tl_parser_write_byte(tp, TL_OP_MUL);                 break;
+		case TL_TOK_SLASH:   tl_parser_write_byte(tp, TL_OP_DIV);                 break;
+		case TL_TOK_NEQ:     tl_parser_write_byte(tp, TL_OP_NEQ);                 break;
+		case TL_TOK_EQ:      tl_parser_write_bytes(tp, TL_OP_NEQ, TL_OP_NOT);     break;
+		case TL_TOK_GEQ:     tl_parser_write_bytes(tp, TL_OP_LESS, TL_OP_NOT);    break;
+		case TL_TOK_LEQ:     tl_parser_write_bytes(tp, TL_OP_GREATER, TL_OP_NOT); break;
+		case TL_TOK_LESS:    tl_parser_write_byte(tp, TL_OP_LESS);                break;
+		case TL_TOK_GREATER: tl_parser_write_byte(tp, TL_OP_GREATER);             break;
 		default: return; // unreachable
 	}
 }
@@ -681,24 +745,40 @@ static void tl_parser_unary(tl_parser* tp)
 	tl_parser_parse_prec(tp, TL_PREC_UNARY);
 	switch (type)
 	{
-		case TL_TOK_BANG: tl_parser_write_byte(tp, TL_OP_NOT); break;
+		case TL_TOK_BANG:  tl_parser_write_byte(tp, TL_OP_NOT); break;
 		case TL_TOK_MINUS: tl_parser_write_byte(tp, TL_OP_NEG); break;
 		default: return; // unreachable
 	}
 }
 
+static void tl_parser_grouping(tl_parser* tp)
+{
+	tl_parser_parse_prec(tp, TL_PREC_EQUALITY);
+	tl_parser_expect(tp, TL_TOK_RPAREN, "expected ')' after expression");
+}
+
 static tl_parser_parse_rule tl_parser_parse_rules[] = {
-	[TL_TOK_NUM  ] = { tl_parser_number,  NULL,             TL_PREC_NONE   },
-	[TL_TOK_BANG ] = { tl_parser_unary,   NULL,             TL_PREC_UNARY  },
-	[TL_TOK_DOT ]  = { NULL,              NULL,             TL_PREC_NONE   },
-	[TL_TOK_PLUS ] = { NULL,              tl_parser_binary, TL_PREC_TERM   },
-	[TL_TOK_MINUS] = { tl_parser_unary,   tl_parser_binary, TL_PREC_TERM   },
-	[TL_TOK_STAR ] = { NULL,              tl_parser_binary, TL_PREC_FACTOR },
-	[TL_TOK_SLASH] = { NULL,              tl_parser_binary, TL_PREC_FACTOR },
-	[TL_TOK_TRUE ] = { tl_parser_literal, NULL,             TL_PREC_NONE   },
-	[TL_TOK_FALSE] = { tl_parser_literal, NULL,             TL_PREC_NONE   },
-	[TL_TOK_NULL ] = { tl_parser_literal, NULL,             TL_PREC_NONE   },
-	[TL_TOK_EOF  ] = { NULL,              NULL,             TL_PREC_NONE   },
+	[TL_TOK_NUM    ] = { tl_parser_number,   NULL,             TL_PREC_NONE       },
+
+	[TL_TOK_PLUS   ] = { NULL,               tl_parser_binary, TL_PREC_TERM       },
+	[TL_TOK_MINUS  ] = { tl_parser_unary,    tl_parser_binary, TL_PREC_TERM       },
+	[TL_TOK_STAR   ] = { NULL,               tl_parser_binary, TL_PREC_FACTOR     },
+	[TL_TOK_SLASH  ] = { NULL,               tl_parser_binary, TL_PREC_FACTOR     },
+	[TL_TOK_LPAREN ] = { tl_parser_grouping, NULL,             TL_PREC_FACTOR     },
+
+	[TL_TOK_TRUE   ] = { tl_parser_literal,  NULL,             TL_PREC_NONE       },
+	[TL_TOK_FALSE  ] = { tl_parser_literal,  NULL,             TL_PREC_NONE       },
+	[TL_TOK_NULL   ] = { tl_parser_literal,  NULL,             TL_PREC_NONE       },
+
+	[TL_TOK_BANG   ] = { tl_parser_unary,    NULL,             TL_PREC_UNARY      },
+	[TL_TOK_DOT    ] = { NULL,               NULL,             TL_PREC_NONE       },
+
+	[TL_TOK_EQ     ] = { NULL,               tl_parser_binary, TL_PREC_EQUALITY   },
+	[TL_TOK_NEQ    ] = { NULL,               tl_parser_binary, TL_PREC_EQUALITY   },
+	[TL_TOK_LEQ    ] = { NULL,               tl_parser_binary, TL_PREC_COMPARISON },
+	[TL_TOK_GEQ    ] = { NULL,               tl_parser_binary, TL_PREC_COMPARISON },
+	[TL_TOK_LESS   ] = { NULL,               tl_parser_binary, TL_PREC_COMPARISON },
+	[TL_TOK_GREATER] = { NULL,               tl_parser_binary, TL_PREC_COMPARISON },
 };
 
 static inline tl_parser_parse_rule* tl_parser_get_rule(tl_token_type type)
@@ -709,7 +789,7 @@ static inline tl_parser_parse_rule* tl_parser_get_rule(tl_token_type type)
 static void tl_parser_parse_prec(tl_parser* tp, tl_parser_precedence prec)
 {
 	// yay, pratt parsing
-	tl_parser_next(tp);
+	tl_parser_advance(tp);
 	tl_parser_parselet prefix = tl_parser_get_rule(tp->cur_tok.type)->prefix;
 	if (prefix == NULL)
 	{
@@ -720,7 +800,7 @@ static void tl_parser_parse_prec(tl_parser* tp, tl_parser_precedence prec)
 
 	while (prec <= tl_parser_get_rule(tp->next_tok.type)->precedence)
 	{
-		tl_parser_next(tp);
+		tl_parser_advance(tp);
 		tl_parser_parselet infix = tl_parser_get_rule(tp->cur_tok.type)->infix;
 		infix(tp);
 	}
@@ -728,13 +808,14 @@ static void tl_parser_parse_prec(tl_parser* tp, tl_parser_precedence prec)
 
 static void tl_parser_expression(tl_parser* tp)
 {
-	tl_parser_parse_prec(tp, TL_PREC_TERM);
+	tl_parser_parse_prec(tp, TL_PREC_EQUALITY);
 }
 
 void tl_parser_parse(tl_parser* tp, tl_vm* vm)
 {
 	tp->vm = vm;
 	tl_parser_expression(tp);
+	tl_parser_expect(tp, TL_TOK_EOF, "expected end of file");
 	tl_parser_write_byte(tp, TL_OP_RETURN);
 }
 
