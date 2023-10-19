@@ -8,8 +8,10 @@
 #include "tl.h"
 
 // TODO(thacuber2a03):
-// - tokenizer
+// - finish tokenizer
+// - finish parser
 // - more possible values
+// - objects; strings, lists, maps, etc.
 // - more vm operations
 // - etc. you know the drill
 
@@ -17,12 +19,11 @@
 
 #define unused(x) ((void) x)
 
-typedef enum
-{
+typedef enum {
 	TL_OP_LOAD, // load a value from constants table
-	TL_OP_TRUE, // push a true
-	TL_OP_FALSE, // push a false
-	TL_OP_NULL, // push a null
+	TL_OP_TRUE,
+	TL_OP_FALSE,
+	TL_OP_NULL,
 
 	TL_OP_ADD,
 	TL_OP_SUB,
@@ -227,11 +228,11 @@ void tl_func_free(tl_vm* vm, tl_func* func)
 tl_vm* tl_new_vm(void)
 {
 	tl_vm* vm = malloc(sizeof *vm);
-	vm->code = NULL;
-	vm->constants = tl_new_list(vm);
-	vm->stack_top = vm->stack;
 	vm->bytes_allocated = 0;
+	vm->stack_top = vm->stack;
 	vm->res = TL_RES_OK;
+	vm->code = tl_new_func(vm);
+	vm->constants = tl_new_list(vm);
 	return vm;
 }
 
@@ -240,13 +241,20 @@ static inline void tl_vm_write(tl_vm* vm, tl_op opcode)
 	tl_func_write(vm, vm->code, opcode);
 }
 
+static size_t tl_vm_load_const(tl_vm* vm, tl_val constant)
+{
+	return tl_list_push(vm, vm->constants, constant);
+}
+
+// these might be useful later
+/*
 void tl_load_test_program(tl_vm* vm)
 {
 	vm->code = tl_new_func(vm);
 
-	size_t a = tl_list_push(vm, vm->constants, tl_val_from_num(42));
-	size_t b = tl_list_push(vm, vm->constants, tl_val_from_num(21));
-	size_t c = tl_list_push(vm, vm->constants, tl_val_from_num(10.5));
+	size_t a = tl_vm_load_const(vm, tl_val_from_num(42)  );
+	size_t b = tl_vm_load_const(vm, tl_val_from_num(21)  );
+	size_t c = tl_vm_load_const(vm, tl_val_from_num(10.5));
 
 	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, a);
 	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, b);
@@ -276,6 +284,7 @@ void tl_load_error_test_program(tl_vm* vm)
 	tl_vm_write(vm, TL_OP_ADD);
 	tl_vm_write(vm, TL_OP_RETURN);
 }
+*/
 
 static void tl_vm_push(tl_vm* vm, tl_val value)
 {
@@ -339,7 +348,11 @@ tl_result tl_run(tl_vm* vm)
 			case TL_OP_SUB: arith_op(-); break;
 			case TL_OP_MUL: arith_op(*); break;
 			case TL_OP_DIV: arith_op(/); break;
-			case TL_OP_NEG: tl_val_to_num(vm->stack_top[-1]) *= -1; break;
+			case TL_OP_NEG:
+				if (!tl_val_is_num(tl_vm_peek(vm, 0)))
+					return tl_vm_runtime_error(vm, "can't negate a non-number");
+				tl_val_to_num(vm->stack_top[-1]) *= -1;
+				break;
 			case TL_OP_NOT:
 				vm->stack_top[-1] = tl_val_from_bool(tl_val_is_falsy(vm->stack_top[-1]));
 				break;
@@ -367,12 +380,14 @@ void tl_free_vm(tl_vm* vm)
 
 ///// tokenizer /////
 
-typedef enum
-{
-	TL_TOK_ERROR = -1,
-	TL_TOK_EOF,
-	TL_TOK_NUM,
+typedef enum {
 	TL_TOK_PLUS, TL_TOK_MINUS, TL_TOK_STAR, TL_TOK_SLASH,
+	TL_TOK_BANG,
+
+	TL_TOK_NUM,
+
+	TL_TOK_EOF,
+	TL_TOK_ERROR,
 } tl_token_type;
 
 typedef struct
@@ -472,6 +487,7 @@ static tl_token tl_tokenizer_next_tok(tl_tokenizer* tk)
 		case ' ':
 			return tl_tokenizer_next_tok(tk);
 
+		case '!': return tl_tokenizer_new_token(tk, TL_TOK_BANG);
 		case '+': return tl_tokenizer_new_token(tk, TL_TOK_PLUS);
 		case '-': return tl_tokenizer_new_token(tk, TL_TOK_MINUS);
 		case '*': return tl_tokenizer_new_token(tk, TL_TOK_STAR);
@@ -497,17 +513,31 @@ typedef struct {
 	tl_tokenizer* tk;
 	tl_token cur_tok, next_tok;
 	tl_vm* vm;
+	bool panic, error;
 } tl_parser;
+
+typedef enum {
+	TL_PREC_NONE,
+	TL_PREC_TERM,
+	TL_PREC_FACTOR,
+	TL_PREC_UNARY,
+} tl_parser_precedence;
+
+typedef void (*tl_parser_parselet)(tl_parser* tp);
+
+typedef struct {
+	tl_parser_parselet prefix, infix;
+	tl_parser_precedence precedence;
+} tl_parser_parse_rule;
+
+static tl_token tl_parser_next(tl_parser* tp);
 
 static void tl_parser_init(tl_parser* tp, tl_tokenizer* tk)
 {
 	tp->tk = tk;
 	tp->vm = NULL;
-}
-
-static tl_token* tl_parser_peek(tl_parser* tp)
-{
-	return &tp->next_tok;
+	tp->error = tp->panic = false;
+	tl_parser_next(tp);
 }
 
 static tl_token tl_parser_next(tl_parser* tp)
@@ -517,24 +547,122 @@ static tl_token tl_parser_next(tl_parser* tp)
 	return tp->next_tok;
 }
 
+static void tl_parser_error(tl_parser* tp, tl_token tok, const char* msg)
+{
+	fprintf(stderr,
+		"[line %i] error near '%.*s': %s\n",
+		(int)tok.line, (int)tok.length, tok.start, msg
+	);
+
+	tp->error = tp->panic = true;
+}
+
+#define tl_parser_write_byte(tp, b) tl_vm_write((tp)->vm, (b))
+#define tl_parser_write_bytes(tp, b1, b2) \
+	do { \
+		tl_parser_write_byte(tp, b1); \
+		tl_parser_write_byte(tp, b2); \
+	} while (0) \
+
+static void tl_parser_load_const(tl_parser* tp, tl_val constant)
+{
+	size_t idx = tl_vm_load_const(tp->vm, constant);
+	tl_parser_write_bytes(tp, TL_OP_LOAD, idx);
+}
+
+static void tl_parser_expression(tl_parser* tp);
+static void tl_parser_parse_prec(tl_parser* tp, tl_parser_precedence prec);
+static tl_parser_parse_rule* tl_parser_get_rule(tl_token_type type);
+
+static void tl_parser_number(tl_parser* tp)
+{
+	double num = strtod(tp->cur_tok.start, NULL);
+	tl_parser_load_const(tp, tl_val_from_num(num));
+}
+
+static void tl_parser_binary(tl_parser* tp)
+{
+	tl_token_type type = tp->cur_tok.type;
+	tl_parser_precedence prec = tl_parser_get_rule(type)->precedence;
+	tl_parser_parse_prec(tp, prec + 1);
+
+	switch (type)
+	{
+		case TL_TOK_PLUS:  tl_parser_write_byte(tp, TL_OP_ADD); break;
+		case TL_TOK_MINUS: tl_parser_write_byte(tp, TL_OP_SUB); break;
+		case TL_TOK_STAR:  tl_parser_write_byte(tp, TL_OP_MUL); break;
+		case TL_TOK_SLASH: tl_parser_write_byte(tp, TL_OP_DIV); break;
+		default: return; // unreachable
+	}
+}
+
+static void tl_parser_unary(tl_parser* tp)
+{
+	tl_token_type type = tp->cur_tok.type;
+	tl_parser_parse_prec(tp, TL_PREC_UNARY);
+	switch (type)
+	{
+		case TL_TOK_BANG: tl_parser_write_byte(tp, TL_OP_NOT); break;
+		case TL_TOK_MINUS: tl_parser_write_byte(tp, TL_OP_NEG); break;
+		default: return; // unreachable
+	}
+}
+
+static tl_parser_parse_rule tl_parser_parse_rules[] = {
+	[TL_TOK_NUM  ] = { tl_parser_number, NULL,             TL_PREC_NONE   },
+	[TL_TOK_BANG ] = { tl_parser_unary,  NULL,             TL_PREC_UNARY  },
+	[TL_TOK_PLUS ] = { NULL,             tl_parser_binary, TL_PREC_TERM   },
+	[TL_TOK_MINUS] = { tl_parser_unary,  tl_parser_binary, TL_PREC_TERM   },
+	[TL_TOK_STAR ] = { NULL,             tl_parser_binary, TL_PREC_FACTOR },
+	[TL_TOK_SLASH] = { NULL,             tl_parser_binary, TL_PREC_FACTOR },
+	[TL_TOK_EOF  ] = { NULL,             NULL,             TL_PREC_NONE   },
+};
+
+static inline tl_parser_parse_rule* tl_parser_get_rule(tl_token_type type)
+{
+	return &tl_parser_parse_rules[type];
+}
+
+static void tl_parser_parse_prec(tl_parser* tp, tl_parser_precedence prec)
+{
+	// yay, pratt parsing
+	tl_parser_next(tp);
+	tl_parser_parselet prefix = tl_parser_get_rule(tp->cur_tok.type)->prefix;
+	if (prefix == NULL)
+	{
+		tl_parser_error(tp, tp->cur_tok, "expected expression");
+		return;
+	}
+	prefix(tp);
+
+	while (prec <= tl_parser_get_rule(tp->next_tok.type)->precedence)
+	{
+		tl_parser_next(tp);
+		tl_parser_parselet infix = tl_parser_get_rule(tp->cur_tok.type)->infix;
+		infix(tp);
+	}
+}
+
+static void tl_parser_expression(tl_parser* tp)
+{
+	tl_parser_parse_prec(tp, TL_PREC_TERM);
+}
+
 void tl_parser_parse(tl_parser* tp, tl_vm* vm)
 {
 	tp->vm = vm;
-	while (tl_parser_peek(tp)->type != TL_TOK_EOF)
-	{
-		tl_token tok = tl_parser_next(tp);
-		printf("%i, \"%.*s\"\n", tok.type, (int)tok.length, tok.start);
-	}
+	tl_parser_expression(tp);
 }
 
 ///// frontend /////
 
-void tl_compile_string(tl_vm* vm, const char* string)
+bool tl_compile_string(tl_vm* vm, const char* string)
 {
 	tl_tokenizer tk;
 	tl_tokenizer_init(&tk, string);
 	tl_parser tp;
 	tl_parser_init(&tp, &tk);
 	tl_parser_parse(&tp, vm);
+	return tp.error;
 }
 

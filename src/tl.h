@@ -38,8 +38,6 @@ bool tl_val_is_falsy(tl_val value);
 typedef struct tl_vm tl_vm;
 tl_vm* tl_new_vm(void);
 void tl_free_vm(tl_vm* vm);
-void tl_load_test_program(tl_vm* vm);
-void tl_load_error_test_program(tl_vm* vm);
 tl_result tl_run(tl_vm* vm);
-void tl_compile_string(tl_vm* vm, const char* string);
+bool tl_compile_string(tl_vm* vm, const char* string);
 
