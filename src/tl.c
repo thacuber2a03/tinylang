@@ -22,12 +22,14 @@ typedef enum
 	TL_OP_LOAD, // load a value from constants table
 	TL_OP_TRUE, // push a true
 	TL_OP_FALSE, // push a false
+	TL_OP_NULL, // push a null
 
 	TL_OP_ADD,
 	TL_OP_SUB,
 	TL_OP_MUL,
 	TL_OP_DIV,
 	TL_OP_NEG,
+	TL_OP_NOT,
 
 	TL_OP_RETURN, // return from function; at top level, halt
 } tl_op;
@@ -72,6 +74,13 @@ void tl_val_print(tl_val value)
 		case TL_TYPE_BOOL: printf(tl_val_to_bool(value) ? "true" : "false"); break;
 		default: return; // unreachable
 	}
+}
+
+bool tl_val_is_falsy(tl_val value)
+{
+	if (tl_val_is_bool(value)) return !tl_val_to_bool(value);
+	if (tl_val_is_null(value)) return true;
+	return false;
 }
 
 ///// mem /////
@@ -192,6 +201,7 @@ void tl_func_disassemble(tl_vm* vm, tl_func* func)
 			case TL_OP_LOAD: offset = disasssemble_const(vm, func, "TL_OP_LOAD", offset); break;
 			case TL_OP_TRUE: offset = disassemble_simple("TL_OP_TRUE", offset); break;
 			case TL_OP_FALSE: offset = disassemble_simple("TL_OP_FALSE", offset); break;
+			case TL_OP_NULL: offset = disassemble_simple("TL_OP_NULL", offset); break;
 
 			case TL_OP_ADD: offset = disassemble_simple("TL_OP_ADD", offset); break;
 			case TL_OP_SUB: offset = disassemble_simple("TL_OP_SUB", offset); break;
@@ -214,7 +224,7 @@ void tl_func_free(tl_vm* vm, tl_func* func)
 
 ///// vm /////
 
-tl_vm* tl_new_vm()
+tl_vm* tl_new_vm(void)
 {
 	tl_vm* vm = malloc(sizeof *vm);
 	vm->code = NULL;
@@ -321,11 +331,19 @@ tl_result tl_run(tl_vm* vm)
 		switch (instruction)
 		{
 			case TL_OP_LOAD: tl_vm_push(vm, read_constant()); break;
+			case TL_OP_TRUE: tl_vm_push(vm, tl_val_true); break;
+			case TL_OP_FALSE: tl_vm_push(vm, tl_val_false); break;
+			case TL_OP_NULL: tl_vm_push(vm, tl_val_null); break;
+
 			case TL_OP_ADD: arith_op(+); break;
 			case TL_OP_SUB: arith_op(-); break;
 			case TL_OP_MUL: arith_op(*); break;
 			case TL_OP_DIV: arith_op(/); break;
-			case TL_OP_NEG: tl_val_to_num(*vm->stack_top) *= -1; break;
+			case TL_OP_NEG: tl_val_to_num(vm->stack_top[-1]) *= -1; break;
+			case TL_OP_NOT:
+				vm->stack_top[-1] = tl_val_from_bool(tl_val_is_falsy(vm->stack_top[-1]));
+				break;
+
 			case TL_OP_RETURN:
 				// TODO(thacuber2a03): change this, of course
 				printf("return val: ");
