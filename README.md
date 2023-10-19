@@ -1,6 +1,10 @@
 # tinylang
-a tiny, bytecode interpreted toy programming language implemented in C99
-that fits in (well, actually, that I've shoehorned in) one C file.
+an embeddable, small and fast toy programming language implemented in C99
+that fits in (well, actually, that I've shoehorned in) a pair of .h/.c files.
+
+*NOTE*:
+I am doing this whole thing in the spot.
+whatever comes into my mind that I deem useful will appear here
 
 ## ultra quick overview, go
 
