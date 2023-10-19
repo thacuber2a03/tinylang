@@ -6,6 +6,10 @@ that fits in (well, actually, that I've shoehorned in) a pair of .h/.c files.
 I am doing this whole thing in the spot.
 whatever comes into my mind that I deem useful will appear here
 
+## features
+
+- small but expressive bytecode; compiles in a single pass
+
 ## ultra quick overview, go
 
 `tl_vm* vm = tl_new_vm()`, `tl_compile_string(vm, "print(\"hi\")")`, `tl_run(vm)`.
