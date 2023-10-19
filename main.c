@@ -3,21 +3,40 @@
 
 #include "tl.h"
 
-int main(void)
+static void repl(void)
 {
   tl_vm* vm = tl_new_vm();
 
-  // I am so unfunny
-  tl_compile_string(vm, "1 + 20 - 12.3 * 420.69 / 2 // some random expression");
-
-  switch (tl_run(vm))
+  for (;;)
   {
-    case TL_RES_OK: printf("a-ok!\n"); break;
-    case TL_RES_RUNERR: printf("runtime error\n"); break;
-    case TL_RES_SYNERR: printf("syntax error\n"); break;
+    printf("> ");
+
+    int count = 0, cap = 32;
+    char* buf = malloc(cap);
+
+    int c;
+    while ((c = fgetc(stdin)) != '\n')
+    {
+      if (count + 1 > cap)
+      {
+        cap *= 2;
+        buf = realloc(buf, cap);
+      }
+      buf[count++] = c;
+    }
+
+    if (tl_compile_string(vm, (const char*)buf))
+    {
+      tl_run(vm);
+    }
+    tl_clear_code(vm);
   }
 
   tl_free_vm(vm);
-  return EXIT_SUCCESS;
+}
+
+int main(void)
+{
+  repl();
 }
 
