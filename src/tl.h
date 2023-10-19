@@ -1,7 +1,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-//#define TL_DEBUG
+// #define TL_DEBUG
 #define TL_DEBUG_RUNTIME
 #define TL_DISASSEMBLE
 

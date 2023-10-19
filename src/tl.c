@@ -353,6 +353,7 @@ tl_result tl_run(tl_vm* vm)
 #ifdef TL_DISASSEMBLE
 	fprintf(stderr, "tinylang: code listing:\n");
 	tl_func_disassemble(vm, vm->code);
+	fprintf(stderr, "\n");
 #endif
 
 #define arith_op(op, result, action) \
@@ -364,13 +365,19 @@ tl_result tl_run(tl_vm* vm)
     tl_vm_push(vm, tl_val_from_##result(a op b));  \
   } while(0)
 
+
+#ifdef TL_DEBUG_RUNTIME
+	fprintf(stderr, "tinylang: execution listing:\n");
+#endif
+
 	uint8_t* ip = vm->code->code;
 #define read_byte() (*ip++)
 #define read_constant() (tl_list_get(vm->constants, read_byte()))
+
 	for (;;)
 	{
 #ifdef TL_DEBUG_RUNTIME
-		printf("current instruction: ");
+		fprintf(stderr, "current instruction: ");
 		tl_func_disassemble_instruction(vm, vm->code, ip - vm->code->code);
 #endif
 
@@ -418,15 +425,15 @@ tl_result tl_run(tl_vm* vm)
 		}
 
 #ifdef TL_DEBUG_RUNTIME
-		printf("stack: ");
+		fprintf(stderr, "stack: ");
 		for (tl_val* val = vm->stack; val < vm->stack_top; val++)
 		{
-			printf("| ");
+			fprintf(stderr, "| ");
 			tl_val_print(*val);
 			putchar(' ');
 			if (val + 1 == vm->stack_top) putchar('|');
 		}
-		printf("\n");
+		fprintf(stderr, "\n");
 #endif
 	}
 
