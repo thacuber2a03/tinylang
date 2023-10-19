@@ -335,7 +335,7 @@ tl_result tl_run(tl_vm* vm)
 #define arith_op(op, action) \
   do {                                    \
     if (!tl_val_is_num(tl_vm_peek(vm, 0)) || !tl_val_is_num(tl_vm_peek(vm, 1))) \
-      return tl_vm_runtime_error(vm, "can't " #action " non-number values\n"); \
+      return tl_vm_runtime_error(vm, "can't " action " non-number values\n"); \
     double b = tl_val_to_num(tl_vm_pop(vm)); \
     double a = tl_val_to_num(tl_vm_pop(vm)); \
     tl_vm_push(vm, tl_val_from_num(a op b));  \
@@ -359,10 +359,10 @@ tl_result tl_run(tl_vm* vm)
 			case TL_OP_FALSE: tl_vm_push(vm, tl_val_false); break;
 			case TL_OP_NULL: tl_vm_push(vm, tl_val_null); break;
 
-			case TL_OP_ADD: arith_op(+); break;
-			case TL_OP_SUB: arith_op(-); break;
-			case TL_OP_MUL: arith_op(*); break;
-			case TL_OP_DIV: arith_op(/); break;
+			case TL_OP_ADD: arith_op(+, "add"); break;
+			case TL_OP_SUB: arith_op(-, "subtract"); break;
+			case TL_OP_MUL: arith_op(*, "multiply"); break;
+			case TL_OP_DIV: arith_op(/, "divide"); break;
 			case TL_OP_NEG:
 				if (!tl_val_is_num(tl_vm_peek(vm, 0)))
 					return tl_vm_runtime_error(vm, "can't negate a non-number");
