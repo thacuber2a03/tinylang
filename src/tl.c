@@ -117,7 +117,7 @@ void* tl_realloc(tl_vm* vm, void* ptr, size_t size)
 
 	vm->bytes_allocated += size;
 #ifdef TL_DEBUG
-	fprintf(stderr, "tinylang: allocating %lu bytes\n", vm->bytes_allocated);
+	printf("tinylang: allocating %lu bytes\n", vm->bytes_allocated);
 #endif
 
 	return res;
@@ -351,9 +351,9 @@ tl_result tl_run(tl_vm* vm)
 	if (vm->res != TL_RES_OK) return vm->res;
 
 #ifdef TL_DISASSEMBLE
-	fprintf(stderr, "tinylang: code listing:\n");
+	printf("tinylang: code listing:\n");
 	tl_func_disassemble(vm, vm->code);
-	fprintf(stderr, "\n");
+	printf("\n");
 #endif
 
 #define arith_op(op, result, action) \
@@ -367,7 +367,7 @@ tl_result tl_run(tl_vm* vm)
 
 
 #ifdef TL_DEBUG_RUNTIME
-	fprintf(stderr, "tinylang: execution listing:\n");
+	printf("tinylang: execution listing:\n");
 #endif
 
 	uint8_t* ip = vm->code->code;
@@ -425,15 +425,15 @@ tl_result tl_run(tl_vm* vm)
 		}
 
 #ifdef TL_DEBUG_RUNTIME
-		fprintf(stderr, "stack: ");
+		printf("stack: ");
 		for (tl_val* val = vm->stack; val < vm->stack_top; val++)
 		{
-			fprintf(stderr, "| ");
+			printf("| ");
 			tl_val_print(*val);
 			putchar(' ');
 			if (val + 1 == vm->stack_top) putchar('|');
 		}
-		fprintf(stderr, "\n");
+		printf("\n");
 #endif
 	}
 
