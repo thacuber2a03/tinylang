@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <ctype.h>
 
 #include "tl.h"
@@ -32,6 +33,7 @@ struct tl_val
 	tl_val_type type;
 	union {
 		double number;
+		bool boolean;
 	} as;
 };
 
@@ -62,7 +64,8 @@ void tl_val_print(tl_val value)
 {
 	switch (value.type)
 	{
-		case TL_TYPE_NUM: printf("%g", tl_to_num(value));
+		case TL_TYPE_NUM: printf("%g", tl_val_to_num(value)); break;
+		case TL_TYPE_BOOL: printf(tl_val_to_bool(value) ? "true" : "false"); break;
 		default: return; // unreachable
 	}
 }
@@ -224,24 +227,37 @@ void tl_load_test_program(tl_vm* vm)
 {
 	vm->code = tl_new_func(vm);
 
-	size_t a = tl_list_push(vm, vm->constants, tl_as_num(42));
-	size_t b = tl_list_push(vm, vm->constants, tl_as_num(21));
-	size_t c = tl_list_push(vm, vm->constants, tl_as_num(10.5));
-	tl_vm_write(vm, TL_OP_LOAD);
-	tl_vm_write(vm, a);
-	tl_vm_write(vm, TL_OP_LOAD);
-	tl_vm_write(vm, b);
+	size_t a = tl_list_push(vm, vm->constants, tl_val_from_num(42));
+	size_t b = tl_list_push(vm, vm->constants, tl_val_from_num(21));
+	size_t c = tl_list_push(vm, vm->constants, tl_val_from_num(10.5));
+
+	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, a);
+	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, b);
 	tl_vm_write(vm, TL_OP_ADD);
-	tl_vm_write(vm, TL_OP_LOAD);
-	tl_vm_write(vm, c);
+
+	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, c);
 	tl_vm_write(vm, TL_OP_SUB);
 	tl_vm_write(vm, TL_OP_NEG);
-	tl_vm_write(vm, TL_OP_LOAD);
-	tl_vm_write(vm, c);
+
+	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, c);
 	tl_vm_write(vm, TL_OP_MUL);
-	tl_vm_write(vm, TL_OP_LOAD);
-	tl_vm_write(vm, b);
+
+	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, b);
 	tl_vm_write(vm, TL_OP_DIV);
+
+	tl_vm_write(vm, TL_OP_RETURN);
+}
+
+void tl_load_error_test_program(tl_vm* vm)
+{
+	vm->code = tl_new_func(vm);
+
+	size_t num = tl_list_push(vm, vm->constants, tl_val_from_num(42));
+	size_t boolean = tl_list_push(vm, vm->constants, tl_val_from_bool(true));
+
+	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, num);
+	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, boolean);
+	tl_vm_write(vm, TL_OP_ADD);
 	tl_vm_write(vm, TL_OP_RETURN);
 }
 
@@ -256,6 +272,22 @@ static tl_val tl_vm_pop(tl_vm* vm)
 	return *--vm->stack_top;
 }
 
+static tl_val tl_vm_peek(tl_vm* vm, size_t off)
+{
+	return vm->stack_top[-1-off];
+}
+
+static tl_result tl_vm_runtime_error(tl_vm* vm, const char* msg, ...)
+{
+	unused(vm);
+
+	va_list arg;
+	va_start(arg, msg);
+	vfprintf(stderr, msg, arg);
+	va_end(arg);
+	return TL_RES_RUNERR;
+}
+
 tl_result tl_run(tl_vm* vm)
 {
 	if (vm->res != TL_RES_OK) return vm->res;
@@ -267,9 +299,11 @@ tl_result tl_run(tl_vm* vm)
 
 #define arith_op(op) \
 	do {                                   \
-		double b = tl_to_num(tl_vm_pop(vm)); \
-		double a = tl_to_num(tl_vm_pop(vm)); \
-		tl_vm_push(vm, tl_as_num(a + b));    \
+		if (!tl_val_is_num(tl_vm_peek(vm, 0)) || !tl_val_is_num(tl_vm_peek(vm, 1))) \
+			return tl_vm_runtime_error(vm, "can't add non-number values\n"); \
+		double b = tl_val_to_num(tl_vm_pop(vm)); \
+		double a = tl_val_to_num(tl_vm_pop(vm)); \
+		tl_vm_push(vm, tl_val_from_num(a + b));    \
 	} while(0)
 
 	uint8_t* ip = vm->code->code;
@@ -285,7 +319,7 @@ tl_result tl_run(tl_vm* vm)
 			case TL_OP_SUB: arith_op(-); break;
 			case TL_OP_MUL: arith_op(*); break;
 			case TL_OP_DIV: arith_op(/); break;
-			case TL_OP_NEG: tl_to_num(*vm->stack_top) *= -1; break;
+			case TL_OP_NEG: tl_val_to_num(*vm->stack_top) *= -1; break;
 			case TL_OP_RETURN:
 				// TODO(thacuber2a03): change this, of course
 				printf("return val: ");
