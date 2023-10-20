@@ -12,6 +12,4 @@ the language is in really early development anyways.
 
 ## ultra quick overview, go
 
-`tl_vm* vm = tl_new_vm()`, `tl_compile_string(vm, "print(\"hi\")")`, `tl_run(vm)`.
-of course, the middle step doesn't work yet, so the most you can do at this point
-is to call `tl_load_test_program(vm)`.
+`tl_vm* vm = tl_new_vm()`, `tl_compile_string(vm, "1 + 2 == 3")`, `tl_run(vm)`. yeah, right now it's, uhh, an expression evaluator
