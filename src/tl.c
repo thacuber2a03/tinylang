@@ -377,7 +377,6 @@ tl_result tl_run(tl_vm* vm)
 	for (;;)
 	{
 #ifdef TL_DEBUG_RUNTIME
-		printf("current instruction: ");
 		tl_func_disassemble_instruction(vm, vm->code, ip - vm->code->code);
 #endif
 
@@ -684,7 +683,7 @@ static void tl_parser_expect(tl_parser* tp, tl_token_type expected, const char* 
 		tl_parser_advance(tp);
 		return;
 	}
-	tl_parser_error(tp, tp->cur_tok, msg);
+	tl_parser_error(tp, tp->next_tok, msg);
 }
 
 #define tl_parser_write_byte(tp, b) tl_vm_write((tp)->vm, (b))
@@ -698,6 +697,11 @@ static void tl_parser_load_const(tl_parser* tp, tl_val constant)
 {
 	size_t idx = tl_vm_load_const(tp->vm, constant);
 	tl_parser_write_bytes(tp, TL_OP_LOAD, idx);
+}
+
+static void tl_parser_write_return(tl_parser* tp)
+{
+	tl_parser_write_byte(tp, TL_OP_RETURN);
 }
 
 static void tl_parser_expression(tl_parser* tp);
@@ -823,13 +827,14 @@ void tl_parser_parse(tl_parser* tp, tl_vm* vm)
 	tp->vm = vm;
 	tl_parser_expression(tp);
 	tl_parser_expect(tp, TL_TOK_EOF, "expected end of file");
-	tl_parser_write_byte(tp, TL_OP_RETURN);
+	tl_parser_write_return(tp);
 }
 
 ///// frontend /////
 
 bool tl_compile_string(tl_vm* vm, const char* string)
 {
+	if (!*string) return false;
 	tl_tokenizer tk;
 	tl_tokenizer_init(&tk, string);
 	tl_parser tp;
