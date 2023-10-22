@@ -40,19 +40,9 @@ typedef enum {
 	TL_OP_RETURN, // return from function; at top level, halt
 } tl_op;
 
-typedef enum {
-	TL_OBJ_STRING,
-} tl_obj_type;
-
-typedef struct {
+struct tl_obj {
 	tl_obj_type type;
-} tl_obj;
-
-typedef struct {
-	tl_obj* obj;
-	size_t length;
-	char* chars;
-} tl_obj_string;
+};
 
 typedef struct {
 	tl_val* data;
@@ -129,10 +119,12 @@ static size_t tl_list_push(tl_vm* vm, tl_list* list, tl_val value)
 	return idx;
 }
 
+/*
 static inline tl_val tl_list_pop(tl_list* list)
 {
 	return list->data[--list->count];
 }
+*/
 
 static inline tl_val tl_list_get(tl_list* list, size_t idx)
 {
@@ -239,12 +231,39 @@ static void tl_func_free(tl_vm* vm, tl_func* func)
 
 ///// object /////
 
+static tl_obj* tl_obj_new_(tl_vm* vm, size_t size, tl_obj_type type)
+{
+	tl_obj* obj = tl_alloc(vm, size);
+	obj->type = type;
+	return obj;
+}
+
+#define tl_obj_new(vm, struct_type, obj_type) \
+	((struct_type*) tl_obj_new_(vm, sizeof(struct_type), obj_type))
+
 static tl_obj_string* tl_obj_new_string(tl_vm* vm, char* chars, size_t length)
 {
-	tl_obj_string* obj = tl_alloc(vm, sizeof *obj);
+	tl_obj_string* obj = tl_obj_new(vm, tl_obj_string, TL_OBJ_STRING);
+	printf("%i\n", (int)length);
 	obj->chars = chars;
 	obj->length = length;
 	return obj;
+}
+
+static tl_obj_string* tl_obj_copy_str(tl_vm* vm, char* chars, size_t length)
+{
+	char* heapChars = tl_alloc(vm, length+1);
+	memcpy(heapChars, chars, length);
+	heapChars[length] = '\0';
+	return tl_obj_new_string(vm, chars, length);
+}
+
+static void tl_obj_print(tl_obj* object)
+{
+	switch (object->type)
+	{
+		case TL_OBJ_STRING: printf("%s", tl_obj_to_cstr(object)); break;
+	}
 }
 
 ///// val /////
@@ -256,6 +275,7 @@ void tl_val_print(tl_val value)
 		case TL_TYPE_NUM: printf("%g", tl_val_to_num(value)); break;
 		case TL_TYPE_BOOL: printf(tl_val_to_bool(value) ? "true" : "false"); break;
 		case TL_TYPE_NULL: printf("null"); break;
+		case TL_TYPE_OBJ: tl_obj_print(tl_val_to_obj(value)); break;
 		default: return; // unreachable
 	}
 }
@@ -474,7 +494,7 @@ typedef enum {
 	TL_TOK_DOT, TL_TOK_ASSIGN, TL_TOK_LPAREN, TL_TOK_RPAREN,
 
 	TL_TOK_TRUE, TL_TOK_FALSE, TL_TOK_NULL,
-	TL_TOK_NUM, TL_TOK_ID,
+	TL_TOK_NUM, TL_TOK_ID, TL_TOK_STR,
 
 	TL_TOK_EOF,
 	TL_TOK_ERROR,
@@ -523,22 +543,11 @@ static tl_token tl_tokenizer_new_error(tl_tokenizer* tk, const char* msg)
 	return tok;
 }
 
-/*
-static tl_token tl_token_none = {
-	.type = TL_TOK_ERROR,
-	.line = -1,
-	.start = "no token to peek",
-	.length = sizeof "no token to peek"
-};
-*/
-
 #define tl_tokenizer_peek(tk) (*(tk)->current)
 #define tl_tokenizer_peekn(tk, n) ((tk)->current[n])
 #define tl_tokenizer_at_end(tk) (tl_tokenizer_peek(tk) == '\0')
 #define tl_tokenizer_advance(tk) ((tk)->current++)
 #define tl_tokenizer_advancec(tk) (*(tk)->current++)
-
-#define tl_tokenizer_is_digit(c) ((c) >= '0' && (c) <= '9')
 
 static bool tl_tokenizer_match(tl_tokenizer* tk, char c)
 {
@@ -589,6 +598,20 @@ static tl_token tl_tokenizer_scan_id(tl_tokenizer* tk)
 	return tl_tokenizer_check_word(tk);
 }
 
+static tl_token tl_tokenizer_scan_str(tl_tokenizer* tk)
+{
+	while (tl_tokenizer_peek(tk) != '"' && !tl_tokenizer_at_end(tk))
+	{
+		if (tl_tokenizer_peek(tk) == '\n') tk->line++;
+		tl_tokenizer_advance(tk);
+	}
+
+	if (tl_tokenizer_at_end(tk)) return tl_tokenizer_new_error(tk, "unterminated string");
+
+	tl_tokenizer_advance(tk);
+	return tl_tokenizer_new_token(tk, TL_TOK_STR);
+}
+
 static tl_token tl_tokenizer_next_tok(tl_tokenizer* tk)
 {
 	tk->start = tk->current;
@@ -617,6 +640,7 @@ static tl_token tl_tokenizer_next_tok(tl_tokenizer* tk)
 		case '+': return tl_tokenizer_new_token(tk, TL_TOK_PLUS);
 		case '-': return tl_tokenizer_new_token(tk, TL_TOK_MINUS);
 		case '*': return tl_tokenizer_new_token(tk, TL_TOK_STAR);
+
 		case '/':
 			if (tl_tokenizer_match(tk, '/'))
 			{
@@ -625,6 +649,8 @@ static tl_token tl_tokenizer_next_tok(tl_tokenizer* tk)
 				return tl_tokenizer_next_tok(tk);
 			}
 			else return tl_tokenizer_new_token(tk, TL_TOK_SLASH);
+
+		case '"': return tl_tokenizer_scan_str(tk);
 
 		default:
 			if (isdigit(c)) return tl_tokenizer_scan_num(tk);
@@ -675,16 +701,18 @@ static void tl_parser_error(tl_parser* tp, tl_token tok, const char* msg)
 {
 	if (tp->panic) return;
 
-	fprintf(stderr, "[line %i] error", (int)tok.line);
+	fprintf(stderr, "error");
 
 	switch (tok.type)
 	{
-		case TL_TOK_EOF: fprintf(stderr, " at end"); break;
-		case TL_TOK_ERROR: break;
-		default: fprintf(stderr, " near %.*s", (int)tok.length, tok.start); break;
+		case TL_TOK_EOF: fprintf(stderr, " at end of"); break;
+		default:
+			fprintf(stderr, " near \"%.*s\"", (int)tok.length, tok.start);
+			// fallthrough
+		case TL_TOK_ERROR: fprintf(stderr, " in"); break;
 	}
 
-	fprintf(stderr, ": %s\n", msg);
+	fprintf(stderr, " line %i: %s\n", (int)tok.line, msg);
 
 	tp->error = tp->panic = true;
 }
@@ -754,6 +782,14 @@ static void tl_parser_literal(tl_parser* tp)
 	}
 }
 
+static void tl_parser_string(tl_parser* tp)
+{
+	tl_token* tok = &tp->cur_tok;
+	tl_parser_load_const(tp,
+		tl_val_from_obj(tl_obj_copy_str(tp->vm, tok->start+1, tok->length-2))
+	);
+}
+
 static void tl_parser_binary(tl_parser* tp)
 {
 	tl_token_type type = tp->cur_tok.type;
@@ -797,6 +833,7 @@ static void tl_parser_grouping(tl_parser* tp)
 static tl_parser_parse_rule tl_parser_parse_rules[] = {
 	[TL_TOK_NUM    ] = { tl_parser_number,   NULL,             TL_PREC_NONE       },
 	[TL_TOK_ID     ] = { NULL,               NULL,             TL_PREC_NONE       },
+	[TL_TOK_STR    ] = { tl_parser_string,   NULL,             TL_PREC_NONE       },
 
 	[TL_TOK_PLUS   ] = { NULL,               tl_parser_binary, TL_PREC_TERM       },
 	[TL_TOK_MINUS  ] = { tl_parser_unary,    tl_parser_binary, TL_PREC_TERM       },
