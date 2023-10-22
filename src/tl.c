@@ -40,10 +40,6 @@ typedef enum {
 	TL_OP_RETURN, // return from function; at top level, halt
 } tl_op;
 
-struct tl_obj {
-	tl_obj_type type;
-};
-
 typedef struct {
 	tl_val* data;
 	size_t count, cap;
@@ -244,7 +240,6 @@ static tl_obj* tl_obj_new_(tl_vm* vm, size_t size, tl_obj_type type)
 static tl_obj_string* tl_obj_new_string(tl_vm* vm, char* chars, size_t length)
 {
 	tl_obj_string* obj = tl_obj_new(vm, tl_obj_string, TL_OBJ_STRING);
-	printf("%i\n", (int)length);
 	obj->chars = chars;
 	obj->length = length;
 	return obj;
@@ -255,14 +250,14 @@ static tl_obj_string* tl_obj_copy_str(tl_vm* vm, char* chars, size_t length)
 	char* heapChars = tl_alloc(vm, length+1);
 	memcpy(heapChars, chars, length);
 	heapChars[length] = '\0';
-	return tl_obj_new_string(vm, chars, length);
+	return tl_obj_new_string(vm, heapChars, length);
 }
 
-static void tl_obj_print(tl_obj* object)
+static void tl_obj_print(tl_val object)
 {
-	switch (object->type)
+	switch (tl_val_to_obj(object)->type)
 	{
-		case TL_OBJ_STRING: printf("%s", tl_obj_to_cstr(object)); break;
+		case TL_OBJ_STRING: printf("%s", tl_val_to_cstr(object)); break;
 	}
 }
 
@@ -275,7 +270,7 @@ void tl_val_print(tl_val value)
 		case TL_TYPE_NUM: printf("%g", tl_val_to_num(value)); break;
 		case TL_TYPE_BOOL: printf(tl_val_to_bool(value) ? "true" : "false"); break;
 		case TL_TYPE_NULL: printf("null"); break;
-		case TL_TYPE_OBJ: tl_obj_print(tl_val_to_obj(value)); break;
+		case TL_TYPE_OBJ: tl_obj_print(value); break;
 		default: return; // unreachable
 	}
 }
@@ -294,6 +289,13 @@ static bool tl_val_not_equal(tl_val a, tl_val b)
 	if (tl_val_type(a) != tl_val_type(b)) return true;
 	if (tl_val_is_num(a)) return tl_val_to_num(a) != tl_val_to_num(b);
 	if (tl_val_is_bool(a)) return tl_val_to_bool(a) != tl_val_to_bool(b);
+	if (tl_val_is_str(a))
+	{
+		tl_obj_string* stra = tl_val_to_str(a);
+		tl_obj_string* strb = tl_val_to_str(b);
+		return stra->length != strb->length
+		|| memcmp(stra->chars, strb->chars, stra->length);
+	}
 	return false;
 }
 
@@ -319,46 +321,6 @@ static size_t tl_vm_load_const(tl_vm* vm, tl_val constant)
 {
 	return tl_list_push(vm, vm->constants, constant);
 }
-
-// these might be useful later
-/*
-void tl_load_test_program(tl_vm* vm)
-{
-	vm->code = tl_new_func(vm);
-
-	size_t a = tl_vm_load_const(vm, tl_val_from_num(42)  );
-	size_t b = tl_vm_load_const(vm, tl_val_from_num(21)  );
-	size_t c = tl_vm_load_const(vm, tl_val_from_num(10.5));
-
-	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, a);
-	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, b);
-	tl_vm_write(vm, TL_OP_ADD);
-
-	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, c);
-	tl_vm_write(vm, TL_OP_SUB);
-	tl_vm_write(vm, TL_OP_NEG);
-
-	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, c);
-	tl_vm_write(vm, TL_OP_MUL);
-
-	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, b);
-	tl_vm_write(vm, TL_OP_DIV);
-
-	tl_vm_write(vm, TL_OP_RETURN);
-}
-
-void tl_load_error_test_program(tl_vm* vm)
-{
-	tl_func* code = tl_new_func(vm);
-
-	size_t num = tl_list_push(vm, vm->constants, tl_val_from_num(42));
-
-	tl_func_write(vm, code, TL_OP_LOAD); tl_func_write(vm, code, num);
-	tl_func_write(vm, code, TL_OP_TRUE);
-	tl_func_write(vm, code, TL_OP_ADD);
-	tl_func_write(vm, code, TL_OP_RETURN);
-}
-*/
 
 static void tl_vm_push(tl_vm* vm, tl_val value)
 {
@@ -396,12 +358,12 @@ tl_result tl_vm_run(tl_vm* vm, tl_func* code)
 #endif
 
 #define arith_op(op, result, action) \
-  do {                                    \
+  do {                                                                          \
     if (!tl_val_is_num(tl_vm_peek(vm, 0)) || !tl_val_is_num(tl_vm_peek(vm, 1))) \
-      return tl_vm_runtime_error(vm, "can't " action " non-number values\n"); \
-    double b = tl_val_to_num(tl_vm_pop(vm)); \
-    double a = tl_val_to_num(tl_vm_pop(vm)); \
-    tl_vm_push(vm, tl_val_from_##result(a op b));  \
+      return tl_vm_runtime_error(vm, "can't " action " non-number values\n");   \
+    double b = tl_val_to_num(tl_vm_pop(vm));                                    \
+    double a = tl_val_to_num(tl_vm_pop(vm));                                    \
+    tl_vm_push(vm, tl_val_from_##result(a op b));                               \
   } while(0)
 
 
@@ -547,7 +509,7 @@ static tl_token tl_tokenizer_new_error(tl_tokenizer* tk, const char* msg)
 #define tl_tokenizer_peekn(tk, n) ((tk)->current[n])
 #define tl_tokenizer_at_end(tk) (tl_tokenizer_peek(tk) == '\0')
 #define tl_tokenizer_advance(tk) ((tk)->current++)
-#define tl_tokenizer_advancec(tk) (*(tk)->current++)
+#define tl_tokenizer_advancec(tk) (*((tk)->current++))
 
 static bool tl_tokenizer_match(tl_tokenizer* tk, char c)
 {

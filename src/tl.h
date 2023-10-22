@@ -14,13 +14,6 @@ typedef enum
 	TL_RES_EMPTY, // input code was empty
 } tl_result;
 
-typedef enum {
-	TL_OBJ_STRING,
-} tl_obj_type;
-
-typedef struct tl_obj tl_obj;
-typedef struct tl_obj_string tl_obj_string;
-
 typedef enum
 {
 	TL_TYPE_NULL,
@@ -29,11 +22,19 @@ typedef enum
 	TL_TYPE_OBJ,
 } tl_val_type;
 
-struct tl_obj_string {
+typedef enum {
+	TL_OBJ_STRING,
+} tl_obj_type;
+
+typedef struct {
+	tl_obj_type type;
+} tl_obj;
+
+typedef struct {
 	tl_obj* obj;
 	size_t length;
 	char* chars;
-};
+} tl_obj_string;
 
 typedef struct
 {
@@ -67,10 +68,15 @@ bool tl_val_is_truthy(tl_val value);
 #define tl_val_to_obj(val) ((val).as.object)
 #define tl_val_from_obj(obj) ((tl_val) { .type = TL_TYPE_OBJ, .as.object = ((tl_obj*)obj) })
 
-#define tl_obj_to_str(obj) ((tl_obj_string*)obj)
-#define tl_obj_to_cstr(obj) (((tl_obj_string*)obj)->chars)
+#define tl_val_is_str(val) _tl_is_obj_type(val, TL_OBJ_STRING)
+#define tl_val_to_str(val) ((tl_obj_string*)tl_val_to_obj(val))
+#define tl_val_to_cstr(val) (((tl_obj_string*)tl_val_to_obj(val))->chars)
 
-#define tl_val_from_str(vm, chars, len) tl_val_from_obj(tl_obj_from_str(vm, chars, len))
+static inline bool _tl_is_obj_type(tl_val val, tl_obj_type type)
+{
+	return tl_val_is_obj(val) && tl_val_to_obj(val)->type == type;
+}
+
 
 typedef struct tl_vm tl_vm;
 
