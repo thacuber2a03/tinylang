@@ -17,6 +17,7 @@ static void repl(void)
 
     int c; while ((c = fgetc(stdin)) != '\n')
     {
+      if (c == EOF) break;
       if (count + 1 > cap)
       {
         cap *= 2;
@@ -25,7 +26,14 @@ static void repl(void)
       buf[count++] = c;
     }
 
+    if (c == EOF)
+    {
+      free(buf);
+      break;
+    }
+
     tl_do_string(vm, (const char*)buf);
+    free(buf);
   }
 
   tl_free_vm(vm);

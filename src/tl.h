@@ -3,8 +3,8 @@
 #include <stddef.h>
 
 // #define TL_DEBUG
-#define TL_DEBUG_RUNTIME
-#define TL_DISASSEMBLE
+// #define TL_DEBUG_RUNTIME
+// #define TL_DISASSEMBLE
 
 typedef enum
 {
@@ -26,8 +26,9 @@ typedef enum {
 	TL_OBJ_STRING,
 } tl_obj_type;
 
-typedef struct {
+typedef struct tl_obj {
 	tl_obj_type type;
+	struct tl_obj* next;
 } tl_obj;
 
 typedef struct {
@@ -45,9 +46,6 @@ typedef struct
 		tl_obj* object;
 	} as;
 } tl_val;
-
-void tl_val_print(tl_val value);
-bool tl_val_is_truthy(tl_val value);
 
 #define tl_val_type(val) ((val).type)
 
@@ -76,7 +74,6 @@ static inline bool _tl_is_obj_type(tl_val val, tl_obj_type type)
 {
 	return tl_val_is_obj(val) && tl_val_to_obj(val)->type == type;
 }
-
 
 typedef struct tl_vm tl_vm;
 

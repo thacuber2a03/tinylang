@@ -11,9 +11,9 @@
 // - finish tokenizer
 // - finish parser
 // - more possible values
-// - objects; strings, lists, maps, etc.
+// - objects; lists, maps, etc.
 // - more vm operations
-// - etc. you know the drill
+// - get the object printing functions out of here
 
 ///// defs /////
 
@@ -57,24 +57,31 @@ struct tl_vm {
 	tl_val stack[TL_STACK_MAX];
 	tl_val* stack_top;
 	tl_result res;
+	tl_obj* objects;
 	size_t bytes_allocated;
 };
 
 ///// mem /////
 
 #define tl_grow_cap(cap) ((cap) == 0 ? 8 : (cap) * 2)
-#define tl_grow_list(vm, list) tl_realloc(vm, list->data, list->cap * sizeof *list->data)
+#define tl_grow_list(vm, old_size, list) \
+	tl_realloc(vm, list->data, old_size, list->cap * sizeof *list->data)
 
-void* tl_realloc(tl_vm* vm, void* ptr, size_t size)
+void* tl_realloc(tl_vm* vm, void* ptr, size_t old_size, size_t new_size)
 {
-	if (size == 0)
+	size_t diff = new_size - old_size;
+
+	if (new_size == 0)
 	{
-		vm->bytes_allocated -= size;
+		vm->bytes_allocated -= diff;
 		free(ptr);
+#ifdef TL_DEBUG
+		printf("tinylang: %lu bytes freed\n", -diff);
+#endif
 		return NULL;
 	}
 
-	void* res = realloc(ptr, size);
+	void* res = realloc(ptr, new_size);
 	if (!res)
 	{
 		// TODO(thacuber2a03): do something better than this
@@ -82,16 +89,104 @@ void* tl_realloc(tl_vm* vm, void* ptr, size_t size)
 		exit(EXIT_FAILURE);
 	}
 
-	vm->bytes_allocated += size;
+	vm->bytes_allocated += diff;
 #ifdef TL_DEBUG
-	printf("tinylang: allocating %lu bytes\n", vm->bytes_allocated);
+	printf("tinylang: %lu bytes allocated\n", diff);
 #endif
 
 	return res;
 }
 
-#define tl_alloc(vm, size) tl_realloc(vm, NULL, size)
-#define tl_free(vm, ptr) tl_realloc(vm, ptr, 0)
+#define tl_alloc(vm, size) tl_realloc(vm, NULL, 0, size)
+#define tl_free(vm, ptr, old_size) tl_realloc(vm, ptr, old_size, 0)
+
+///// object /////
+
+static tl_obj* tl_obj_new_(tl_vm* vm, size_t size, tl_obj_type type)
+{
+	tl_obj* obj = tl_alloc(vm, size);
+	obj->type = type;
+	obj->next = vm->objects;
+	vm->objects = obj;
+	return obj;
+}
+
+#define tl_obj_new(vm, struct_type, obj_type) \
+	((struct_type*) tl_obj_new_(vm, sizeof(struct_type), obj_type))
+
+static tl_obj_string* tl_obj_new_string(tl_vm* vm, char* chars, size_t length)
+{
+	tl_obj_string* obj = tl_obj_new(vm, tl_obj_string, TL_OBJ_STRING);
+	obj->chars = chars;
+	obj->length = length;
+	return obj;
+}
+
+static tl_obj_string* tl_obj_copy_str(tl_vm* vm, char* chars, size_t length)
+{
+	char* heapChars = tl_alloc(vm, length+1);
+	memcpy(heapChars, chars, length);
+	heapChars[length] = '\0';
+	return tl_obj_new_string(vm, heapChars, length);
+}
+
+static void tl_obj_print(tl_val obj)
+{
+	switch (tl_val_to_obj(obj)->type)
+	{
+		case TL_OBJ_STRING: printf("%s", tl_val_to_cstr(obj)); break;
+	}
+}
+
+static void tl_obj_free(tl_vm* vm, tl_obj* obj)
+{
+	switch (obj->type)
+	{
+		case TL_OBJ_STRING:
+		{
+			tl_obj_string* str = (tl_obj_string*)obj;
+			tl_free(vm, str->chars, str->length * sizeof *str->chars);
+			tl_free(vm, str, sizeof *str);
+			break;
+		}
+	}
+}
+
+///// val /////
+
+static void tl_val_print(tl_val value)
+{
+	switch (value.type)
+	{
+		case TL_TYPE_NUM: printf("%g", tl_val_to_num(value)); break;
+		case TL_TYPE_BOOL: printf(tl_val_to_bool(value) ? "true" : "false"); break;
+		case TL_TYPE_NULL: printf("null"); break;
+		case TL_TYPE_OBJ: tl_obj_print(value); break;
+		default: return; // unreachable
+	}
+}
+
+static bool tl_val_is_falsy(tl_val value)
+{
+	if (tl_val_is_bool(value)) return !tl_val_to_bool(value);
+	if (tl_val_is_null(value)) return true;
+	return false;
+}
+
+static bool tl_val_not_equal(tl_val a, tl_val b)
+{
+	if (tl_val_type(a) != tl_val_type(b)) return true;
+	if (tl_val_is_num(a)) return tl_val_to_num(a) != tl_val_to_num(b);
+	if (tl_val_is_bool(a)) return tl_val_to_bool(a) != tl_val_to_bool(b);
+	if (tl_val_is_str(a))
+	{
+		tl_obj_string* stra = tl_val_to_str(a);
+		tl_obj_string* strb = tl_val_to_str(b);
+		return stra->length != strb->length
+		|| memcmp(stra->chars, strb->chars, stra->length);
+	}
+	return false;
+}
 
 ///// list /////
 
@@ -107,8 +202,9 @@ static size_t tl_list_push(tl_vm* vm, tl_list* list, tl_val value)
 {
 	if (list->count + 1 > list->cap)
 	{
+		size_t old_cap = list->cap;
 		list->cap = tl_grow_cap(list->cap);
-		list->data = tl_grow_list(vm, list);
+		list->data = tl_grow_list(vm, old_cap, list);
 	}
 	size_t idx = list->count++;
 	list->data[idx] = value;
@@ -130,8 +226,8 @@ static inline tl_val tl_list_get(tl_list* list, size_t idx)
 
 static void tl_list_free(tl_vm* vm, tl_list* list)
 {
-	tl_free(vm, list->data);
-	tl_free(vm, list);
+	tl_free(vm, list->data, list->cap * sizeof *list->data);
+	tl_free(vm, list, sizeof *list);
 }
 
 ///// func /////
@@ -148,8 +244,9 @@ static void tl_func_write(tl_vm* vm, tl_func* func, uint8_t code)
 {
 	if (func->count + 1 > func->cap)
 	{
+		size_t old_cap = func->cap;
 		func->cap = tl_grow_cap(func->cap);
-		func->code = tl_realloc(vm, func->code, func->cap);
+		func->code = tl_realloc(vm, func->code, old_cap, func->cap);
 	}
 	func->code[func->count++] = code;
 }
@@ -220,86 +317,11 @@ static void tl_func_disassemble(tl_vm* vm, tl_func* func)
 
 static void tl_func_free(tl_vm* vm, tl_func* func)
 {
-	tl_free(vm, func->code);
+	tl_free(vm, func->code, func->cap * sizeof *func->code);
 	func->code = 0;
 	func->cap = 0;
 }
 
-///// object /////
-
-static tl_obj* tl_obj_new_(tl_vm* vm, size_t size, tl_obj_type type)
-{
-	tl_obj* obj = tl_alloc(vm, size);
-	obj->type = type;
-	return obj;
-}
-
-#define tl_obj_new(vm, struct_type, obj_type) \
-	((struct_type*) tl_obj_new_(vm, sizeof(struct_type), obj_type))
-
-static tl_obj_string* tl_obj_new_string(tl_vm* vm, char* chars, size_t length)
-{
-	tl_obj_string* obj = tl_obj_new(vm, tl_obj_string, TL_OBJ_STRING);
-	obj->chars = chars;
-	obj->length = length;
-	return obj;
-}
-
-static tl_obj_string* tl_obj_copy_str(tl_vm* vm, char* chars, size_t length)
-{
-	char* heapChars = tl_alloc(vm, length+1);
-	memcpy(heapChars, chars, length);
-	heapChars[length] = '\0';
-	return tl_obj_new_string(vm, heapChars, length);
-}
-
-static void tl_obj_print(tl_val object)
-{
-	switch (tl_val_to_obj(object)->type)
-	{
-		case TL_OBJ_STRING: printf("%s", tl_val_to_cstr(object)); break;
-	}
-}
-
-///// val /////
-
-void tl_val_print(tl_val value)
-{
-	switch (value.type)
-	{
-		case TL_TYPE_NUM: printf("%g", tl_val_to_num(value)); break;
-		case TL_TYPE_BOOL: printf(tl_val_to_bool(value) ? "true" : "false"); break;
-		case TL_TYPE_NULL: printf("null"); break;
-		case TL_TYPE_OBJ: tl_obj_print(value); break;
-		default: return; // unreachable
-	}
-}
-
-static bool tl_val_is_falsy(tl_val value)
-{
-	if (tl_val_is_bool(value)) return !tl_val_to_bool(value);
-	if (tl_val_is_null(value)) return true;
-	return false;
-}
-
-bool tl_val_is_truthy(tl_val value) { return !tl_val_is_falsy(value); }
-
-static bool tl_val_not_equal(tl_val a, tl_val b)
-{
-	if (tl_val_type(a) != tl_val_type(b)) return true;
-	if (tl_val_is_num(a)) return tl_val_to_num(a) != tl_val_to_num(b);
-	if (tl_val_is_bool(a)) return tl_val_to_bool(a) != tl_val_to_bool(b);
-	if (tl_val_is_str(a))
-	{
-		tl_obj_string* stra = tl_val_to_str(a);
-		tl_obj_string* strb = tl_val_to_str(b);
-		return stra->length != strb->length
-		|| memcmp(stra->chars, strb->chars, stra->length);
-	}
-	return false;
-}
-
-bool tl_val_equal(tl_val a, tl_val b) { return !tl_val_not_equal(a, b); }
 
 ///// vm /////
 
@@ -313,27 +335,28 @@ tl_vm* tl_new_vm(void)
 	tl_vm* vm = malloc(sizeof *vm);
 	vm->bytes_allocated = 0;
 	vm->constants = tl_new_list(vm);
+	vm->objects = NULL;
 	tl_vm_reset_stack(vm);
 	return vm;
 }
 
-static size_t tl_vm_load_const(tl_vm* vm, tl_val constant)
+static inline size_t tl_vm_load_const(tl_vm* vm, tl_val constant)
 {
 	return tl_list_push(vm, vm->constants, constant);
 }
 
-static void tl_vm_push(tl_vm* vm, tl_val value)
+static inline void tl_vm_push(tl_vm* vm, tl_val value)
 {
 	*vm->stack_top = value;
 	vm->stack_top++;
 }
 
-static tl_val tl_vm_pop(tl_vm* vm)
+static inline tl_val tl_vm_pop(tl_vm* vm)
 {
 	return *--vm->stack_top;
 }
 
-static tl_val tl_vm_peek(tl_vm* vm, size_t off)
+static inline tl_val tl_vm_peek(tl_vm* vm, size_t off)
 {
 	return vm->stack_top[-1-off];
 }
@@ -442,8 +465,20 @@ tl_result tl_vm_run(tl_vm* vm, tl_func* code)
 #undef arith_op
 }
 
+static void tl_vm_free_objs(tl_vm* vm)
+{
+	tl_obj* obj = vm->objects;
+	while (obj)
+	{
+		tl_obj* next = obj->next;
+		tl_obj_free(vm, obj);
+		obj = next;
+	}
+}
+
 void tl_free_vm(tl_vm* vm)
 {
+	tl_vm_free_objs(vm);
 	tl_list_free(vm, vm->constants);
 	free(vm);
 }
@@ -881,6 +916,7 @@ tl_result tl_do_string(tl_vm* vm, const char* string)
 	tl_result res;
 
 	tl_func* code = tl_new_func(vm);
+
 	res = tl_compile_string(vm, string, code);
 
 	if (res == TL_RES_OK) res = tl_vm_run(vm, code);
