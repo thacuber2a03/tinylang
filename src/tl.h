@@ -10,6 +10,7 @@ typedef enum
 	TL_RES_OK,
 	TL_RES_RUNERR,
 	TL_RES_SYNERR,
+	TL_RES_EMPTY, // input code was empty
 } tl_result;
 
 typedef enum
@@ -17,6 +18,7 @@ typedef enum
 	TL_TYPE_NULL,
 	TL_TYPE_NUM,
 	TL_TYPE_BOOL,
+	TL_TYPE_OBJ,
 } tl_val_type;
 
 typedef struct
@@ -46,10 +48,14 @@ bool tl_val_is_truthy(tl_val value);
 #define tl_val_null ((tl_val) { .type = TL_TYPE_NULL })
 #define tl_val_is_null(val) ((val).type == TL_TYPE_NULL)
 
+#define tl_new_obj() {}
+
+#define tl_obj_from_str(str) { .type = TL_TYPE_OBJ }
+
 typedef struct tl_vm tl_vm;
+
 tl_vm* tl_new_vm(void);
 void tl_free_vm(tl_vm* vm);
-tl_result tl_run(tl_vm* vm);
 void tl_clear_code(tl_vm* vm);
-bool tl_compile_string(tl_vm* vm, const char* string);
+tl_result tl_do_string(tl_vm* vm, const char* string);
 

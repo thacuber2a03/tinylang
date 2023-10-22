@@ -40,6 +40,20 @@ typedef enum {
 	TL_OP_RETURN, // return from function; at top level, halt
 } tl_op;
 
+typedef enum {
+	TL_OBJ_STRING,
+} tl_obj_type;
+
+typedef struct {
+	tl_obj_type type;
+} tl_obj;
+
+typedef struct {
+	tl_obj* obj;
+	size_t length;
+	char* chars;
+} tl_obj_string;
+
 typedef struct {
 	tl_val* data;
 	size_t count, cap;
@@ -56,42 +70,9 @@ struct tl_vm {
 	tl_list* constants;
 	tl_val stack[TL_STACK_MAX];
 	tl_val* stack_top;
-	tl_func* code;
 	tl_result res;
 	size_t bytes_allocated;
 };
-
-///// val /////
-
-void tl_val_print(tl_val value)
-{
-	switch (value.type)
-	{
-		case TL_TYPE_NUM: printf("%g", tl_val_to_num(value)); break;
-		case TL_TYPE_BOOL: printf(tl_val_to_bool(value) ? "true" : "false"); break;
-		case TL_TYPE_NULL: printf("null"); break;
-		default: return; // unreachable
-	}
-}
-
-static bool tl_val_is_falsy(tl_val value)
-{
-	if (tl_val_is_bool(value)) return !tl_val_to_bool(value);
-	if (tl_val_is_null(value)) return true;
-	return false;
-}
-
-bool tl_val_is_truthy(tl_val value) { return !tl_val_is_falsy(value); }
-
-static bool tl_val_not_equal(tl_val a, tl_val b)
-{
-	if (tl_val_type(a) != tl_val_type(b)) return true;
-	if (tl_val_is_num(a)) return tl_val_to_num(a) != tl_val_to_num(b);
-	if (tl_val_is_bool(a)) return tl_val_to_bool(a) != tl_val_to_bool(b);
-	return false;
-}
-
-bool tl_val_equal(tl_val a, tl_val b) { return !tl_val_not_equal(a, b); }
 
 ///// mem /////
 
@@ -256,22 +237,62 @@ static void tl_func_free(tl_vm* vm, tl_func* func)
 	func->cap = 0;
 }
 
+///// object /////
+
+static tl_obj_string* tl_obj_new_string(tl_vm* vm, char* chars, size_t length)
+{
+	tl_obj_string* obj = tl_alloc(vm, sizeof *obj);
+	obj->chars = chars;
+	obj->length = length;
+	return obj;
+}
+
+///// val /////
+
+void tl_val_print(tl_val value)
+{
+	switch (value.type)
+	{
+		case TL_TYPE_NUM: printf("%g", tl_val_to_num(value)); break;
+		case TL_TYPE_BOOL: printf(tl_val_to_bool(value) ? "true" : "false"); break;
+		case TL_TYPE_NULL: printf("null"); break;
+		default: return; // unreachable
+	}
+}
+
+static bool tl_val_is_falsy(tl_val value)
+{
+	if (tl_val_is_bool(value)) return !tl_val_to_bool(value);
+	if (tl_val_is_null(value)) return true;
+	return false;
+}
+
+bool tl_val_is_truthy(tl_val value) { return !tl_val_is_falsy(value); }
+
+static bool tl_val_not_equal(tl_val a, tl_val b)
+{
+	if (tl_val_type(a) != tl_val_type(b)) return true;
+	if (tl_val_is_num(a)) return tl_val_to_num(a) != tl_val_to_num(b);
+	if (tl_val_is_bool(a)) return tl_val_to_bool(a) != tl_val_to_bool(b);
+	return false;
+}
+
+bool tl_val_equal(tl_val a, tl_val b) { return !tl_val_not_equal(a, b); }
+
 ///// vm /////
+
+static void tl_vm_reset_stack(tl_vm* vm)
+{
+	vm->stack_top = vm->stack;
+}
 
 tl_vm* tl_new_vm(void)
 {
 	tl_vm* vm = malloc(sizeof *vm);
 	vm->bytes_allocated = 0;
-	vm->stack_top = vm->stack;
-	vm->res = TL_RES_OK;
-	vm->code = tl_new_func(vm);
 	vm->constants = tl_new_list(vm);
+	tl_vm_reset_stack(vm);
 	return vm;
-}
-
-static inline void tl_vm_write(tl_vm* vm, tl_op opcode)
-{
-	tl_func_write(vm, vm->code, opcode);
 }
 
 static size_t tl_vm_load_const(tl_vm* vm, tl_val constant)
@@ -308,14 +329,14 @@ void tl_load_test_program(tl_vm* vm)
 
 void tl_load_error_test_program(tl_vm* vm)
 {
-	vm->code = tl_new_func(vm);
+	tl_func* code = tl_new_func(vm);
 
 	size_t num = tl_list_push(vm, vm->constants, tl_val_from_num(42));
 
-	tl_vm_write(vm, TL_OP_LOAD); tl_vm_write(vm, num);
-	tl_vm_write(vm, TL_OP_TRUE);
-	tl_vm_write(vm, TL_OP_ADD);
-	tl_vm_write(vm, TL_OP_RETURN);
+	tl_func_write(vm, code, TL_OP_LOAD); tl_func_write(vm, code, num);
+	tl_func_write(vm, code, TL_OP_TRUE);
+	tl_func_write(vm, code, TL_OP_ADD);
+	tl_func_write(vm, code, TL_OP_RETURN);
 }
 */
 
@@ -346,13 +367,11 @@ static tl_result tl_vm_runtime_error(tl_vm* vm, const char* msg, ...)
 	return TL_RES_RUNERR;
 }
 
-tl_result tl_run(tl_vm* vm)
+tl_result tl_vm_run(tl_vm* vm, tl_func* code)
 {
-	if (vm->res != TL_RES_OK) return vm->res;
-
 #ifdef TL_DISASSEMBLE
 	printf("tinylang: code listing:\n");
-	tl_func_disassemble(vm, vm->code);
+	tl_func_disassemble(vm, code);
 	printf("\n");
 #endif
 
@@ -370,14 +389,14 @@ tl_result tl_run(tl_vm* vm)
 	printf("tinylang: execution listing:\n");
 #endif
 
-	uint8_t* ip = vm->code->code;
+	uint8_t* ip = code->code;
 #define read_byte() (*ip++)
 #define read_constant() (tl_list_get(vm->constants, read_byte()))
 
 	for (;;)
 	{
 #ifdef TL_DEBUG_RUNTIME
-		tl_func_disassemble_instruction(vm, vm->code, ip - vm->code->code);
+		tl_func_disassemble_instruction(vm, code, ip - code->code);
 #endif
 
 		uint8_t instruction = read_byte();
@@ -441,15 +460,8 @@ tl_result tl_run(tl_vm* vm)
 #undef arith_op
 }
 
-void tl_clear_code(tl_vm* vm)
-{
-	tl_func_free(vm, vm->code);
-	vm->code = tl_new_func(vm);
-}
-
 void tl_free_vm(tl_vm* vm)
 {
-	tl_func_free(vm, vm->code);
 	tl_list_free(vm, vm->constants);
 	free(vm);
 }
@@ -626,6 +638,7 @@ static tl_token tl_tokenizer_next_tok(tl_tokenizer* tk)
 
 typedef struct {
 	tl_tokenizer* tk;
+	tl_func* code;
 	tl_token cur_tok, next_tok;
 	tl_vm* vm;
 	bool panic, error;
@@ -647,33 +660,46 @@ typedef struct {
 	tl_parser_precedence precedence;
 } tl_parser_parse_rule;
 
-static tl_token tl_parser_advance(tl_parser* tp);
+static void tl_parser_advance(tl_parser* tp);
 
-static void tl_parser_init(tl_parser* tp, tl_tokenizer* tk)
+static void tl_parser_init(tl_parser* tp, tl_tokenizer* tk, tl_func* code)
 {
 	tp->tk = tk;
 	tp->vm = NULL;
 	tp->error = tp->panic = false;
+	tp->code = code;
 	tl_parser_advance(tp);
-}
-
-static tl_token tl_parser_advance(tl_parser* tp)
-{
-	tp->cur_tok = tp->next_tok;
-	tp->next_tok = tl_tokenizer_next_tok(tp->tk);
-	return tp->next_tok;
 }
 
 static void tl_parser_error(tl_parser* tp, tl_token tok, const char* msg)
 {
 	if (tp->panic) return;
 
-	fprintf(stderr,
-		"[line %i] error near '%.*s': %s\n",
-		(int)tok.line, (int)tok.length, tok.start, msg
-	);
+	fprintf(stderr, "[line %i] error", (int)tok.line);
+
+	switch (tok.type)
+	{
+		case TL_TOK_EOF: fprintf(stderr, " at end"); break;
+		case TL_TOK_ERROR: break;
+		default: fprintf(stderr, " near %.*s", (int)tok.length, tok.start); break;
+	}
+
+	fprintf(stderr, ": %s\n", msg);
 
 	tp->error = tp->panic = true;
+}
+
+static void tl_parser_advance(tl_parser* tp)
+{
+	tp->cur_tok = tp->next_tok;
+
+	for (;;)
+	{
+		tp->next_tok = tl_tokenizer_next_tok(tp->tk);
+		if (tp->next_tok.type != TL_TOK_ERROR) return;
+
+		tl_parser_error(tp, tp->next_tok, tp->next_tok.start);
+	}
 }
 
 static void tl_parser_expect(tl_parser* tp, tl_token_type expected, const char* msg, ...)
@@ -686,7 +712,7 @@ static void tl_parser_expect(tl_parser* tp, tl_token_type expected, const char* 
 	tl_parser_error(tp, tp->next_tok, msg);
 }
 
-#define tl_parser_write_byte(tp, b) tl_vm_write((tp)->vm, (b))
+#define tl_parser_write_byte(tp, b) tl_func_write((tp)->vm, (tp)->code, b);
 #define tl_parser_write_bytes(tp, b1, b2) \
 	do { \
 		tl_parser_write_byte(tp, b1); \
@@ -770,12 +796,14 @@ static void tl_parser_grouping(tl_parser* tp)
 
 static tl_parser_parse_rule tl_parser_parse_rules[] = {
 	[TL_TOK_NUM    ] = { tl_parser_number,   NULL,             TL_PREC_NONE       },
+	[TL_TOK_ID     ] = { NULL,               NULL,             TL_PREC_NONE       },
 
 	[TL_TOK_PLUS   ] = { NULL,               tl_parser_binary, TL_PREC_TERM       },
 	[TL_TOK_MINUS  ] = { tl_parser_unary,    tl_parser_binary, TL_PREC_TERM       },
 	[TL_TOK_STAR   ] = { NULL,               tl_parser_binary, TL_PREC_FACTOR     },
 	[TL_TOK_SLASH  ] = { NULL,               tl_parser_binary, TL_PREC_FACTOR     },
 	[TL_TOK_LPAREN ] = { tl_parser_grouping, NULL,             TL_PREC_FACTOR     },
+	[TL_TOK_RPAREN ] = { NULL,               NULL,             TL_PREC_NONE       },
 
 	[TL_TOK_TRUE   ] = { tl_parser_literal,  NULL,             TL_PREC_NONE       },
 	[TL_TOK_FALSE  ] = { tl_parser_literal,  NULL,             TL_PREC_NONE       },
@@ -790,6 +818,8 @@ static tl_parser_parse_rule tl_parser_parse_rules[] = {
 	[TL_TOK_GEQ    ] = { NULL,               tl_parser_binary, TL_PREC_COMPARISON },
 	[TL_TOK_LESS   ] = { NULL,               tl_parser_binary, TL_PREC_COMPARISON },
 	[TL_TOK_GREATER] = { NULL,               tl_parser_binary, TL_PREC_COMPARISON },
+
+	[TL_TOK_EOF    ] = { NULL,               NULL,             TL_PREC_NONE       },
 };
 
 static inline tl_parser_parse_rule* tl_parser_get_rule(tl_token_type type)
@@ -832,14 +862,31 @@ void tl_parser_parse(tl_parser* tp, tl_vm* vm)
 
 ///// frontend /////
 
-bool tl_compile_string(tl_vm* vm, const char* string)
+static tl_result tl_compile_string(tl_vm* vm, const char* string, tl_func* code)
 {
 	if (!*string) return false;
+
 	tl_tokenizer tk;
 	tl_tokenizer_init(&tk, string);
+
 	tl_parser tp;
-	tl_parser_init(&tp, &tk);
+	tl_parser_init(&tp, &tk, code);
 	tl_parser_parse(&tp, vm);
-	return !tp.error;
+
+	return !tp.error ? TL_RES_OK : TL_RES_SYNERR;
+}
+
+tl_result tl_do_string(tl_vm* vm, const char* string)
+{
+	if (!*string) return TL_RES_EMPTY;
+	tl_result res;
+
+	tl_func* code = tl_new_func(vm);
+	res = tl_compile_string(vm, string, code);
+
+	if (res == TL_RES_OK) res = tl_vm_run(vm, code);
+
+	tl_func_free(vm, code);
+	return res;
 }
 

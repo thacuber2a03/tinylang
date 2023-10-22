@@ -25,10 +25,7 @@ static void repl(void)
       buf[count++] = c;
     }
 
-    if (tl_compile_string(vm, (const char*)buf))
-      tl_run(vm);
-
-    tl_clear_code(vm);
+    tl_do_string(vm, (const char*)buf);
   }
 
   tl_free_vm(vm);
