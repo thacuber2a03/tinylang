@@ -109,7 +109,7 @@ void* tl_realloc(tl_vm* vm, void* ptr, size_t old_size, size_t new_size)
 
 static tl_obj* tl_obj_new_(tl_vm* vm, size_t size, tl_obj_type type)
 {
-	tl_obj* obj = (tl_obj*)tl_alloc(vm, size);
+	tl_obj* obj = tl_alloc(vm, size);
 	obj->type = type;
 	obj->next = vm->objects;
 	vm->objects = obj;
