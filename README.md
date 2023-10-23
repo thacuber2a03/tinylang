@@ -13,7 +13,7 @@ the language is in really early development anyways.
 
 ## ultra quick overview, go
 
-`tl_vm* vm = tl_new_vm()`, `tl_compile_string(vm, "1 + 2 == 3")`, `tl_run(vm)`.
+`tl_vm* vm = tl_new_vm()`, `tl_do_string(vm, "1 + 2 == 3")`, `tl_run(vm)`.
 yeah, right now it's, uhh, an expression evaluator
 
 ## ok, now the actual spec
