@@ -32,7 +32,7 @@ typedef struct tl_obj {
 } tl_obj;
 
 typedef struct {
-	tl_obj* obj;
+	tl_obj obj;
 	size_t length;
 	char* chars;
 } tl_obj_string;

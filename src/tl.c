@@ -81,6 +81,11 @@ void* tl_realloc(tl_vm* vm, void* ptr, size_t old_size, size_t new_size)
 		return NULL;
 	}
 
+#ifdef TL_DEBUG
+	if (ptr)
+		printf("tinylang: reallocating pointer %p\n", ptr);
+#endif
+
 	void* res = realloc(ptr, new_size);
 	if (!res)
 	{
@@ -104,7 +109,7 @@ void* tl_realloc(tl_vm* vm, void* ptr, size_t old_size, size_t new_size)
 
 static tl_obj* tl_obj_new_(tl_vm* vm, size_t size, tl_obj_type type)
 {
-	tl_obj* obj = tl_alloc(vm, size);
+	tl_obj* obj = (tl_obj*)tl_alloc(vm, size);
 	obj->type = type;
 	obj->next = vm->objects;
 	vm->objects = obj;
@@ -114,12 +119,12 @@ static tl_obj* tl_obj_new_(tl_vm* vm, size_t size, tl_obj_type type)
 #define tl_obj_new(vm, struct_type, obj_type) \
 	((struct_type*) tl_obj_new_(vm, sizeof(struct_type), obj_type))
 
-static tl_obj_string* tl_obj_new_string(tl_vm* vm, char* chars, size_t length)
+static tl_obj_string* tl_obj_new_str(tl_vm* vm, char* chars, size_t length)
 {
-	tl_obj_string* obj = tl_obj_new(vm, tl_obj_string, TL_OBJ_STRING);
-	obj->chars = chars;
-	obj->length = length;
-	return obj;
+	tl_obj_string* string = tl_obj_new(vm, tl_obj_string, TL_OBJ_STRING);
+	string->chars = chars;
+	string->length = length;
+	return string;
 }
 
 static tl_obj_string* tl_obj_copy_str(tl_vm* vm, char* chars, size_t length)
@@ -127,7 +132,7 @@ static tl_obj_string* tl_obj_copy_str(tl_vm* vm, char* chars, size_t length)
 	char* heapChars = tl_alloc(vm, length+1);
 	memcpy(heapChars, chars, length);
 	heapChars[length] = '\0';
-	return tl_obj_new_string(vm, heapChars, length);
+	return tl_obj_new_str(vm, heapChars, length);
 }
 
 static void tl_obj_print(tl_val obj)
@@ -320,6 +325,7 @@ static void tl_func_free(tl_vm* vm, tl_func* func)
 	tl_free(vm, func->code, func->cap * sizeof *func->code);
 	func->code = 0;
 	func->cap = 0;
+	tl_free(vm, func, sizeof *func);
 }
 
 
