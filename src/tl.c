@@ -40,6 +40,8 @@ typedef enum {
 	TL_OP_RETURN, // return from function; at top level, halt
 } tl_op;
 
+// TODO(thacuber2a03): bunch of code repetition
+
 typedef struct {
 	tl_val* data;
 	size_t count, cap;
@@ -50,6 +52,13 @@ typedef struct {
 	size_t count, cap;
 } tl_func;
 
+typedef struct { tl_obj_string* key; tl_val value; } tl_map_entry;
+
+typedef struct {
+	tl_map_entry* data;
+	size_t count, cap;
+} tl_map;
+
 #define TL_STACK_MAX 256
 
 struct tl_vm {
@@ -58,14 +67,17 @@ struct tl_vm {
 	tl_val* stack_top;
 	tl_result res;
 	tl_obj* objects;
+	tl_map *globals, *strings;
 	size_t bytes_allocated;
 };
 
 ///// mem /////
 
 #define tl_grow_cap(cap) ((cap) == 0 ? 8 : (cap) * 2)
-#define tl_grow_list(vm, old_size, list) \
-	tl_realloc(vm, list->data, old_size, list->cap * sizeof *list->data)
+#define tl_grow_array(vm, old_size, array) \
+	(array->data = tl_realloc(vm, (array)->data,\
+		old_size * sizeof(*(array)->data),\
+		(array)->cap * sizeof(*(array)->data)))
 
 void* tl_realloc(tl_vm* vm, void* ptr, size_t old_size, size_t new_size)
 {
@@ -82,8 +94,7 @@ void* tl_realloc(tl_vm* vm, void* ptr, size_t old_size, size_t new_size)
 	}
 
 #ifdef TL_DEBUG
-	if (ptr)
-		printf("tinylang: reallocating pointer %p\n", ptr);
+	if (ptr) printf("tinylang: reallocating pointer %p\n", ptr);
 #endif
 
 	void* res = realloc(ptr, new_size);
@@ -104,8 +115,18 @@ void* tl_realloc(tl_vm* vm, void* ptr, size_t old_size, size_t new_size)
 
 #define tl_alloc(vm, size) tl_realloc(vm, NULL, 0, size)
 #define tl_free(vm, ptr, old_size) tl_realloc(vm, ptr, old_size, 0)
+static inline void* tl_calloc(tl_vm* vm, size_t size, size_t type_size)
+{
+	size_t byte_size = size * type_size;
+	void* ptr = tl_realloc(vm, NULL, 0, byte_size);
+	memset(ptr, 0, byte_size);
+	return ptr;
+}
 
 ///// object /////
+
+static tl_obj_string* tl_map_find_string(tl_map* map, const char* chars, size_t length, uint32_t hash);
+static bool tl_map_insert(tl_vm* vm, tl_map* map, tl_obj_string* key, tl_val value);
 
 static tl_obj* tl_obj_new_(tl_vm* vm, size_t size, tl_obj_type type)
 {
@@ -119,20 +140,45 @@ static tl_obj* tl_obj_new_(tl_vm* vm, size_t size, tl_obj_type type)
 #define tl_obj_new(vm, struct_type, obj_type) \
 	((struct_type*) tl_obj_new_(vm, sizeof(struct_type), obj_type))
 
-static tl_obj_string* tl_obj_new_str(tl_vm* vm, char* chars, size_t length)
+static tl_obj_string* tl_obj_new_str(tl_vm* vm, char* chars, size_t length, uint32_t hash)
 {
 	tl_obj_string* string = tl_obj_new(vm, tl_obj_string, TL_OBJ_STRING);
 	string->chars = chars;
 	string->length = length;
+	string->hash = hash;
+	tl_map_insert(vm, vm->strings, string, tl_val_from_bool(true));
 	return string;
+}
+
+// FNV-1a
+static uint32_t hash_ptr(const void* data, size_t size)
+{
+#define FNV_PRIME 2166136261
+#define FNV_OFFSET 16777619
+
+	uint32_t hash = FNV_PRIME;
+	const unsigned char* p = data;
+	while (size--) {
+		hash = (hash ^ *p++) * FNV_OFFSET;
+	}
+	return hash;
+
+#undef FNV_PRIME
+#undef FNV_OFFSET
 }
 
 static tl_obj_string* tl_obj_copy_str(tl_vm* vm, char* chars, size_t length)
 {
+	uint32_t hash = hash_ptr(chars, length);
+	tl_obj_string* interned =
+		tl_map_find_string(vm->strings, chars, length, hash);
+
+	if (interned != NULL) return interned;
+
 	char* heapChars = tl_alloc(vm, length+1);
 	memcpy(heapChars, chars, length);
 	heapChars[length] = '\0';
-	return tl_obj_new_str(vm, heapChars, length);
+	return tl_obj_new_str(vm, heapChars, length, hash);
 }
 
 static void tl_obj_print(tl_val obj)
@@ -183,13 +229,7 @@ static bool tl_val_not_equal(tl_val a, tl_val b)
 	if (tl_val_type(a) != tl_val_type(b)) return true;
 	if (tl_val_is_num(a)) return tl_val_to_num(a) != tl_val_to_num(b);
 	if (tl_val_is_bool(a)) return tl_val_to_bool(a) != tl_val_to_bool(b);
-	if (tl_val_is_str(a))
-	{
-		tl_obj_string* stra = tl_val_to_str(a);
-		tl_obj_string* strb = tl_val_to_str(b);
-		return stra->length != strb->length
-		|| memcmp(stra->chars, strb->chars, stra->length);
-	}
+	if (tl_val_is_str(a)) return tl_val_to_obj(a) != tl_val_to_obj(b);
 	return false;
 }
 
@@ -209,7 +249,7 @@ static size_t tl_list_push(tl_vm* vm, tl_list* list, tl_val value)
 	{
 		size_t old_cap = list->cap;
 		list->cap = tl_grow_cap(list->cap);
-		list->data = tl_grow_list(vm, old_cap, list);
+		tl_grow_array(vm, old_cap, list);
 	}
 	size_t idx = list->count++;
 	list->data[idx] = value;
@@ -328,6 +368,122 @@ static void tl_func_free(tl_vm* vm, tl_func* func)
 	tl_free(vm, func, sizeof *func);
 }
 
+///// map /////
+
+static tl_map* tl_new_map(tl_vm* vm)
+{
+	tl_map* map = tl_alloc(vm, sizeof *map);
+	map->data = NULL;
+	map->count = map->cap = 0;
+	return map;
+}
+
+static bool tl_map_find_entry
+	(tl_map_entry* entries, size_t cap, tl_obj_string* key, tl_map_entry** entry)
+{
+	// capacity is increased by powers of two
+	size_t index = key->hash & cap;
+	for (;;)
+	{
+		tl_map_entry* e = entries + index;
+		if (e->key == key || e->key == NULL)
+		{
+			*entry = e;
+			return e->key == NULL;
+		}
+
+		index = (index + 1) & cap;
+	}
+}
+
+static tl_obj_string* tl_map_find_string
+	(tl_map* map, const char* chars, size_t length, uint32_t hash)
+{
+	if (map->count == 0) return NULL;
+
+	// capacity is increased by powers of two
+	uint32_t index = hash & map->cap;
+	for (;;)
+	{
+		tl_map_entry* entry = map->data + index;
+		if (entry->key == NULL) return NULL;
+
+		if (entry->key->length == length &&
+		    entry->key->hash == hash &&
+		    !memcmp(entry->key->chars, chars, length))
+		{
+			return entry->key;
+		}
+
+		index = (index + 1) & map->cap;
+	}
+}
+
+static void tl_map_adjust_cap(tl_vm* vm, tl_map* map, size_t cap)
+{
+	size_t i;
+	tl_map_entry* entries = tl_calloc(vm, cap, sizeof *entries);
+	for (i = 0; i < cap; i++)
+	{
+		entries[i].key = NULL;
+		entries[i].value = tl_val_null;
+	}
+
+	for (i = 0; i < map->cap; i++)
+	{
+		tl_map_entry* entry = map->data + i;
+		if (entry->key == NULL) continue;
+
+		tl_map_entry* dest;
+		tl_map_find_entry(entries, map->cap, entry->key, &dest);
+		dest->key = entry->key;
+		dest->value = entry->value;
+	}
+
+	tl_free(vm, map->data, map->cap * sizeof *map->data);
+	map->data = entries;
+	map->cap = cap;
+}
+
+// TODO(thacuber2a03): arbitrarily picked; benchmark
+#define tl_map_load_fac 0.6
+
+static bool tl_map_insert(tl_vm* vm, tl_map* map, tl_obj_string* key, tl_val value)
+{
+	if (map->count + 1 > map->cap * tl_map_load_fac)
+	{
+		size_t cap = tl_grow_cap(map->cap);
+		tl_map_adjust_cap(vm, map, cap);
+	}
+
+	tl_map_entry* entry;
+	bool new_key = tl_map_find_entry(map->data, map->cap, key, &entry);
+	if (new_key) map->count++;
+
+	entry->key = key;
+	entry->value = value;
+	return new_key;
+}
+
+static bool tl_map_get(tl_vm* vm, tl_map* map, tl_obj_string* key, tl_val* value)
+{
+	unused(vm);
+
+	if (map->count == 0) return false;
+
+	tl_map_entry* entry;
+	tl_map_find_entry(map->data, map->cap, key, &entry);
+	if (entry->key == NULL) return false;
+
+	*value = entry->value;
+	return true;
+}
+
+static void tl_map_free(tl_vm* vm, tl_map* map)
+{
+	tl_free(vm, map->data, map->cap * sizeof *map->data);
+	tl_free(vm, map, sizeof *map);
+}
 
 ///// vm /////
 
@@ -342,12 +498,19 @@ tl_vm* tl_new_vm(void)
 	vm->bytes_allocated = 0;
 	vm->constants = tl_new_list(vm);
 	vm->objects = NULL;
+	vm->strings = tl_new_map(vm);
+	vm->globals = tl_new_map(vm);
 	tl_vm_reset_stack(vm);
 	return vm;
 }
 
-static inline size_t tl_vm_load_const(tl_vm* vm, tl_val constant)
+static size_t tl_vm_load_const(tl_vm* vm, tl_val constant)
 {
+	for (size_t i = 0; i < vm->constants->count; i++)
+	{
+		if (!tl_val_not_equal(tl_list_get(vm->constants, i), constant))
+			return i;
+	}
 	return tl_list_push(vm, vm->constants, constant);
 }
 
@@ -486,6 +649,8 @@ void tl_free_vm(tl_vm* vm)
 {
 	tl_vm_free_objs(vm);
 	tl_list_free(vm, vm->constants);
+	tl_map_free(vm, vm->strings);
+	tl_map_free(vm, vm->globals);
 	free(vm);
 }
 

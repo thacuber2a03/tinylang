@@ -25,6 +25,7 @@ static void repl(void)
       }
       buf[count++] = c;
     }
+    buf[count] = '\0';
 
     if (c == EOF)
     {

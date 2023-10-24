@@ -2,9 +2,9 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// #define TL_DEBUG
-// #define TL_DEBUG_RUNTIME
-// #define TL_DISASSEMBLE
+#define TL_DEBUG
+#define TL_DEBUG_RUNTIME
+#define TL_DISASSEMBLE
 
 typedef enum
 {
@@ -35,6 +35,7 @@ typedef struct {
 	tl_obj obj;
 	size_t length;
 	char* chars;
+	uint32_t hash;
 } tl_obj_string;
 
 typedef struct
