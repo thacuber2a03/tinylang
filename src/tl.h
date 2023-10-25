@@ -78,8 +78,7 @@ static inline bool _tl_is_obj_type(tl_val val, tl_obj_type type)
 
 typedef struct tl_vm tl_vm;
 
-tl_vm* tl_new_vm(void);
-void tl_free_vm(tl_vm* vm);
-void tl_clear_code(tl_vm* vm);
+tl_vm* tl_vm_new(void);
+void tl_vm_free(tl_vm* vm);
 tl_result tl_do_string(tl_vm* vm, const char* string);
 

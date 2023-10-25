@@ -5,7 +5,7 @@
 
 static void repl(void)
 {
-  tl_vm* vm = tl_new_vm();
+  tl_vm* vm = tl_vm_new();
 
   for (;;)
   {
@@ -37,7 +37,7 @@ static void repl(void)
     free(buf);
   }
 
-  tl_free_vm(vm);
+  tl_vm_free(vm);
 }
 
 int main(void)
