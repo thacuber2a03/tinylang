@@ -75,8 +75,8 @@ struct tl_vm {
 
 #define tl_grow_cap(cap) ((cap) == 0 ? 8 : (cap) * 2)
 #define tl_grow_array(vm, old_size, array) \
-	(array->data = tl_realloc(vm, (array)->data,\
-		old_size * sizeof(*(array)->data),\
+	(array->data = tl_realloc(vm, (array)->data, \
+		old_size * sizeof(*(array)->data), \
 		(array)->cap * sizeof(*(array)->data)))
 
 void* tl_realloc(tl_vm* vm, void* ptr, size_t old_size, size_t new_size)
@@ -170,8 +170,7 @@ static uint32_t hash_ptr(const void* data, size_t size)
 static tl_obj_string* tl_obj_copy_str(tl_vm* vm, char* chars, size_t length)
 {
 	uint32_t hash = hash_ptr(chars, length);
-	tl_obj_string* interned =
-		tl_map_find_string(vm->strings, chars, length, hash);
+	tl_obj_string* interned = tl_map_find_string(vm->strings, chars, length, hash);
 
 	if (interned != NULL) return interned;
 
