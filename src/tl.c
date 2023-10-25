@@ -266,8 +266,56 @@ static tl_map* tl_map_new(tl_vm* vm)
 {
 	tl_map* map = tl_alloc(vm, sizeof *map);
 	map->data = NULL;
+	// NOTE(thacuber2a03): cap is always a power of 2
 	map->count = map->cap = 0;
 	return map;
+}
+
+static void tl_map_adjust_cap(tl_vm* vm, tl_map* map, size_t new_cap)
+{
+	size_t i;
+	tl_map_entry* entries = tl_alloc(vm, new_cap * sizeof *entries);
+	for (i = 0; i < new_cap; i++)
+	{
+		entries[i].key = NULL;
+		entries[i].value = tl_val_null;
+	}
+
+	tl_free(vm, map->data, map->cap);
+	map->data = entries;
+	map->cap = new_cap;
+}
+
+static tl_map_entry* tl_map_find_entry(tl_map_entry* entries, size_t cap, tl_obj_string* key)
+{
+	uint32_t index = key->hash & cap;
+	for (;;)
+	{
+		tl_map_entry* entry = entries + index;
+		if (entry->key == key || entry->key == NULL) return entry;
+
+		index = (index + 1) & cap;
+	}
+}
+
+// TODO(thacuber2a03): tune and benchmark
+#define tl_map_load_factor 0.6
+
+static bool tl_map_insert(tl_vm* vm, tl_map* map, tl_obj_string* key, tl_val value)
+{
+	if (map->count + 1 > map->cap * tl_map_load_factor)
+	{
+		size_t new_cap = tl_grow_cap(map->cap);
+		tl_map_adjust_cap(vm, map, new_cap);
+	}
+
+	tl_map_entry* entry = tl_map_find_entry(map->data, map->cap, key);
+	bool new_key = entry->key != NULL;
+	if (new_key) map->count++;
+
+	entry->key = key;
+	entry->value = value;
+	return new_key;
 }
 
 static void tl_map_free(tl_vm* vm, tl_map* map)
@@ -383,6 +431,7 @@ tl_vm* tl_vm_new(void)
 	vm->bytes_allocated = 0;
 	vm->constants = tl_list_new(vm);
 	vm->objects = NULL;
+	vm->strings = tl_map_new(vm);
 	tl_vm_reset_stack(vm);
 	return vm;
 }
