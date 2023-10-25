@@ -54,8 +54,8 @@ typedef struct
 #define tl_val_to_num(val) ((val).as.number)
 #define tl_val_from_num(num) ((tl_val) { .type = TL_TYPE_NUM, .as.number = num })
 
-#define tl_val_true (tl_val_from_bool(1))
-#define tl_val_false (tl_val_from_bool(0))
+#define tl_val_true (tl_val_from_bool(true))
+#define tl_val_false (tl_val_from_bool(false))
 #define tl_val_is_bool(val) ((val).type == TL_TYPE_BOOL)
 #define tl_val_to_bool(val) ((val).as.boolean)
 #define tl_val_from_bool(bool) ((tl_val) { .type = TL_TYPE_BOOL, .as.boolean = bool })
