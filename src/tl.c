@@ -76,7 +76,7 @@ struct tl_vm {
 #define tl_grow_cap(cap) ((cap) == 0 ? 8 : (cap) * 2)
 #define tl_grow_array(vm, old_size, array) \
 	(array->data = tl_realloc(vm, (array)->data, \
-		old_size * sizeof(*(array)->data), \
+		(old_size) * sizeof(*(array)->data), \
 		(array)->cap * sizeof(*(array)->data)))
 
 void* tl_realloc(tl_vm* vm, void* ptr, size_t old_size, size_t new_size)
@@ -115,13 +115,6 @@ void* tl_realloc(tl_vm* vm, void* ptr, size_t old_size, size_t new_size)
 
 #define tl_alloc(vm, size) tl_realloc(vm, NULL, 0, size)
 #define tl_free(vm, ptr, old_size) tl_realloc(vm, ptr, old_size, 0)
-static inline void* tl_calloc(tl_vm* vm, size_t size, size_t type_size)
-{
-	size_t byte_size = size * type_size;
-	void* ptr = tl_realloc(vm, NULL, 0, byte_size);
-	memset(ptr, 0, byte_size);
-	return ptr;
-}
 
 ///// object /////
 
@@ -246,6 +239,7 @@ static size_t tl_list_push(tl_vm* vm, tl_list* list, tl_val value)
 {
 	if (list->count + 1 > list->cap)
 	{
+		// TODO(thacuber2a03)!: program crashes when allocating space for a tl_obj_string???
 		size_t old_cap = list->cap;
 		list->cap = tl_grow_cap(list->cap);
 		tl_grow_array(vm, old_cap, list);
@@ -377,19 +371,15 @@ static tl_map* tl_new_map(tl_vm* vm)
 	return map;
 }
 
-static bool tl_map_find_entry
-	(tl_map_entry* entries, size_t cap, tl_obj_string* key, tl_map_entry** entry)
+static tl_map_entry* tl_map_find_entry
+	(tl_map_entry* entries, size_t cap, tl_obj_string* key)
 {
 	// capacity is increased by powers of two
 	size_t index = key->hash & cap;
 	for (;;)
 	{
 		tl_map_entry* e = entries + index;
-		if (e->key == key || e->key == NULL)
-		{
-			*entry = e;
-			return e->key == NULL;
-		}
+		if (e->key == key || e->key == NULL) return e;
 
 		index = (index + 1) & cap;
 	}
@@ -421,7 +411,7 @@ static tl_obj_string* tl_map_find_string
 static void tl_map_adjust_cap(tl_vm* vm, tl_map* map, size_t cap)
 {
 	size_t i;
-	tl_map_entry* entries = tl_calloc(vm, cap, sizeof *entries);
+	tl_map_entry* entries = tl_alloc(vm, cap * sizeof *entries);
 	for (i = 0; i < cap; i++)
 	{
 		entries[i].key = NULL;
@@ -433,8 +423,7 @@ static void tl_map_adjust_cap(tl_vm* vm, tl_map* map, size_t cap)
 		tl_map_entry* entry = map->data + i;
 		if (entry->key == NULL) continue;
 
-		tl_map_entry* dest;
-		tl_map_find_entry(entries, map->cap, entry->key, &dest);
+		tl_map_entry* dest = tl_map_find_entry(entries, map->cap, entry->key);
 		dest->key = entry->key;
 		dest->value = entry->value;
 	}
@@ -455,8 +444,8 @@ static bool tl_map_insert(tl_vm* vm, tl_map* map, tl_obj_string* key, tl_val val
 		tl_map_adjust_cap(vm, map, cap);
 	}
 
-	tl_map_entry* entry;
-	bool new_key = tl_map_find_entry(map->data, map->cap, key, &entry);
+	tl_map_entry* entry = tl_map_find_entry(map->data, map->cap, key);
+	bool new_key = entry->key == NULL;
 	if (new_key) map->count++;
 
 	entry->key = key;
@@ -470,8 +459,7 @@ static bool tl_map_get(tl_vm* vm, tl_map* map, tl_obj_string* key, tl_val* value
 
 	if (map->count == 0) return false;
 
-	tl_map_entry* entry;
-	tl_map_find_entry(map->data, map->cap, key, &entry);
+	tl_map_entry* entry = tl_map_find_entry(map->data, map->cap, key);
 	if (entry->key == NULL) return false;
 
 	*value = entry->value;
